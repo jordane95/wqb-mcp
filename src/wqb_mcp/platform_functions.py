@@ -58,6 +58,26 @@ class SimulationSettings(BaseModel):
     maxTrade: str = "OFF"
     componentActivation: str = "IS"
 
+class CorrelatedAlpha(BaseModel):
+    """Represents a single correlated alpha."""
+    alpha_id: str
+    correlation: float
+
+class CorrelationCheckResult(BaseModel):
+    """Result for a single correlation type check."""
+    max_correlation: float
+    passes_check: bool
+    count: Optional[int] = None
+    top_correlations: Optional[List[CorrelatedAlpha]] = None
+
+class CorrelationCheckResponse(BaseModel):
+    """Complete correlation check response."""
+    alpha_id: str
+    threshold: float
+    correlation_type: str
+    checks: Dict[str, CorrelationCheckResult]
+    all_passed: bool
+
 class SimulationData(BaseModel):
     type: str = "REGULAR"  # "REGULAR" or "SUPER"
     settings: SimulationSettings
@@ -1134,32 +1154,91 @@ class BrainApiClient:
         # This should never be reached, but just in case
         return {}
 
+    async def get_power_pool_correlation(self, alpha_id: str) -> Dict[str, Any]:
+        """Get Power Pool correlation data for an alpha with retry logic."""
+        await self.ensure_authenticated()
+
+        max_retries = 5
+        retry_delay = 20  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                self.log(f"Attempting to get Power Pool correlation for alpha {alpha_id} (attempt {attempt + 1}/{max_retries})", "INFO")
+
+                response = self.session.get(f"{self.base_url}/alphas/{alpha_id}/correlations/power-pool")
+                response.raise_for_status()
+
+                # Check if response has content
+                text = (response.text or "").strip()
+                if not text:
+                    if attempt < max_retries - 1:
+                        self.log(f"Empty Power Pool correlation response for {alpha_id}, retrying in {retry_delay} seconds...", "WARNING")
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    else:
+                        self.log(f"Empty Power Pool correlation response after {max_retries} attempts for {alpha_id}", "WARNING")
+                        return {}
+
+                try:
+                    correlation_data = response.json()
+                    if correlation_data:
+                        self.log(f"Successfully retrieved Power Pool correlation for alpha {alpha_id}", "SUCCESS")
+                        return correlation_data
+                    else:
+                        if attempt < max_retries - 1:
+                            self.log(f"Empty Power Pool correlation JSON for {alpha_id}, retrying in {retry_delay} seconds...", "WARNING")
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        else:
+                            self.log(f"Empty Power Pool correlation JSON after {max_retries} attempts for {alpha_id}", "WARNING")
+                            return {}
+
+                except Exception as parse_err:
+                    if attempt < max_retries - 1:
+                        self.log(f"Power Pool correlation JSON parse failed for {alpha_id} (attempt {attempt + 1}), retrying in {retry_delay} seconds...", "WARNING")
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    else:
+                        self.log(f"Power Pool correlation JSON parse failed for {alpha_id} after {max_retries} attempts: {parse_err}", "WARNING")
+                        return {}
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    self.log(f"Failed to get Power Pool correlation for {alpha_id} (attempt {attempt + 1}), retrying in {retry_delay} seconds: {str(e)}", "WARNING")
+                    await asyncio.sleep(retry_delay)
+                    continue
+                else:
+                    self.log(f"Failed to get Power Pool correlation for {alpha_id} after {max_retries} attempts: {str(e)}", "ERROR")
+                    raise
+
+        # This should never be reached, but just in case
+        return {}
+
     async def check_correlation(self, alpha_id: str, correlation_type: str = "both", threshold: float = 0.7) -> Dict[str, Any]:
         """Check alpha correlation against production alphas, self alphas, or both."""
         await self.ensure_authenticated()
-        
+
         try:
-            results = {
-                'alpha_id': alpha_id,
-                'threshold': threshold,
-                'correlation_type': correlation_type,
-                'checks': {}
-            }
+            checks_dict = {}
             
             # Determine which correlations to check
             check_types = []
             if correlation_type == "both":
                 check_types = ["production", "self"]
+            elif correlation_type == "all":
+                check_types = ["production", "self", "powerpool"]
             else:
                 check_types = [correlation_type]
-            
+
             all_passed = True
-            
+
             for check_type in check_types:
                 if check_type == "production":
                     correlation_data = await self.get_production_correlation(alpha_id)
                 elif check_type == "self":
                     correlation_data = await self.get_self_correlation(alpha_id)
+                elif check_type == "powerpool":
+                    correlation_data = await self.get_power_pool_correlation(alpha_id)
                 else:
                     continue
                 
@@ -1203,19 +1282,49 @@ class BrainApiClient:
                     raise TypeError("Correlation data is not a dictionary")
 
                 passes_check = max_correlation < threshold
-                
-                results['checks'][check_type] = {
-                    'max_correlation': max_correlation,
-                    'passes_check': passes_check,
-                    'correlation_data': correlation_data
-                }
-                
+
+                # Extract concise summary from correlation data
+                count = None
+                top_correlations = None
+
+                # Add count and top correlations if available
+                records = correlation_data.get('records', [])
+                if records:
+                    count = len(records)
+                    # Extract top 3 correlations (alpha_id and correlation value)
+                    top_corr_list = []
+                    for record in records[:3]:
+                        if isinstance(record, (list, tuple)) and len(record) >= 6:
+                            # Format: [id, name, instrumentType, region, universe, correlation, ...]
+                            top_corr_list.append(CorrelatedAlpha(
+                                alpha_id=record[0],
+                                correlation=record[5]
+                            ))
+                    if top_corr_list:
+                        top_correlations = top_corr_list
+
+                # Create CorrelationCheckResult
+                check_result = CorrelationCheckResult(
+                    max_correlation=max_correlation,
+                    passes_check=passes_check,
+                    count=count,
+                    top_correlations=top_correlations
+                )
+
+                checks_dict[check_type] = check_result
+
                 if not passes_check:
                     all_passed = False
-            
-            results['all_passed'] = all_passed
-            
-            return results
+
+            # Create and return CorrelationCheckResponse
+            response = CorrelationCheckResponse(
+                alpha_id=alpha_id,
+                threshold=threshold,
+                correlation_type=correlation_type,
+                checks=checks_dict,
+                all_passed=all_passed
+            )
+            return response.model_dump()
             
         except Exception as e:
             self.log(f"Failed to check correlation: {str(e)}", "ERROR")
