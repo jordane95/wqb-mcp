@@ -1,6 +1,7 @@
 """Credential management for the WorldQuant BRAIN MCP Server."""
 
 import logging
+import os
 from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -9,11 +10,22 @@ SERVICE_NAME = "wqb-mcp"
 
 
 def load_credentials() -> Tuple[Optional[str], Optional[str]]:
-    """Load credentials from system keyring.
+    """Load credentials from environment variables or system keyring.
+
+    Priority order:
+    1. Environment variables (WQB_EMAIL, WQB_PASSWORD)
+    2. System keyring
 
     Returns:
         (email, password) or (None, None) if not found
     """
+    email = os.environ.get("WQB_EMAIL")
+    password = os.environ.get("WQB_PASSWORD")
+    if email and password:
+        logger.info("Loaded credentials from environment variables")
+        return email, password
+
+    # Fall back to keyring
     try:
         import keyring
         email = keyring.get_password(SERVICE_NAME, "email")

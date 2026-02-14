@@ -8,52 +8,60 @@ Minimal MCP server for WorldQuant BRAIN platform integration with Claude Code.
 - Forum access (glossary, search, posts)
 - Biometric authentication support
 - Browser automation for complex workflows
+- Flexible credential management (env vars or system keyring)
 
 ## Setup
 
 ### 1. Install Package
 
 ```bash
-# Install in editable mode (for development)
 pip install -e .
 
-# Or install normally
-pip install .
-
 # Install Playwright browser
-python -m playwright install chromium
+python3 -m playwright install chromium
 ```
 
-### 2. Register MCP Server
+### 2. Configure Credentials
+
+The server checks credentials in this order:
+
+1. **Environment variables** (`WQB_EMAIL`, `WQB_PASSWORD`)
+2. **System keyring** (macOS Keychain / Windows Credential Locker)
+
+Choose one of the following methods:
+
+**Method 1: Environment variables via `claude mcp add` (recommended)**
+
+This registers the server and configures credentials in one step:
 
 ```bash
-# Use the installed package module
-claude mcp add brain-mcp -- python -m wqb_mcp.server
+claude mcp add wqb-mcp -e WQB_EMAIL=you@example.com -e WQB_PASSWORD=yourpass -- python3 -m wqb_mcp.server
 ```
 
-**Alternative**: Install from Git (coming soon)
+**Method 2: System keyring**
+
 ```bash
-pip install git+https://github.com/jordane95/wqb-mcp.git
-claude mcp add brain-mcp -- python -m wqb_mcp.server
+wqb-mcp-setup
 ```
 
-### 3. Configure Credentials
+### 3. Register MCP Server
 
-Store credentials securely in your system keyring:
+Only needed if using Method 2 (Method 1 already registers the server).
+
+> **Note:** Use `python3` (not `python`) to ensure the correct interpreter is used when Claude Code spawns the process. Shell aliases don't work in non-interactive subprocesses.
 
 ```bash
-python -m wqb_mcp.setup
+claude mcp add wqb-mcp -- python3 -m wqb_mcp.server
 ```
 
-This prompts for email and password directly in the terminal (password is masked). Credentials are stored in macOS Keychain / Windows Credential Locker — no plaintext files.
-
-### 4. Restart Claude Code
+### 4. Verify & Restart
 
 ```bash
-# Exit current session
+# Check server connects
+claude mcp list
+
+# Restart Claude Code
 exit
-
-# Start new session
 claude
 ```
 
@@ -64,9 +72,10 @@ wqb-mcp/
 ├── src/
 │   └── wqb_mcp/
 │       ├── __init__.py
-│       ├── server.py              # Entry point
+│       ├── server.py              # Entry point (auto-prompts setup on first run)
+│       ├── setup.py               # CLI credential setup
 │       ├── models.py              # Pydantic models
-│       ├── config.py              # Credential management (keyring + .env)
+│       ├── config.py              # Credential management (env vars + keyring)
 │       ├── forum.py               # Forum scraper (Playwright)
 │       ├── client/
 │       │   ├── __init__.py        # BrainApiClient (composed from mixins)
@@ -110,7 +119,9 @@ Once configured, the MCP server provides tools for:
 
 ### MCP shows "failed" status
 
-Run debug mode to see errors:
+1. Check credentials are configured (see step 2 above)
+2. Make sure you used `python3` not `python` in `claude mcp add`
+3. Run debug mode to see errors:
 ```bash
 claude --debug
 ```
@@ -119,5 +130,5 @@ claude --debug
 
 Reinstall browser:
 ```bash
-python -m playwright install chromium
+python3 -m playwright install chromium
 ```
