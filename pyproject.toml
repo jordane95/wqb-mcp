@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wqb-mcp"
+version = "0.1.0"
+description = "WorldQuant BRAIN MCP Server for Claude Code"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+    {name = "WorldQuant BRAIN Community"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "mcp",
+    "playwright",
+    "beautifulsoup4",
+    "pandas",
+    "requests",
+    "pydantic",
+    "keyring",
+]
+
+[project.scripts]
+wqb-mcp = "wqb_mcp.server:main"
+wqb-mcp-setup = "wqb_mcp.setup:main"
+
+[project.urls]
+Homepage = "https://github.com/jordane95/wqb-mcp"
+Repository = "https://github.com/jordane95/wqb-mcp"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+wqb_mcp = ["*.json"]
