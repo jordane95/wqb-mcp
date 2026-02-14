@@ -104,7 +104,7 @@ def _parse_glossary_terms(content: str) -> List[Dict[str, str]]:
             "ago" not in term["definition"] and
             "minute read" not in term["definition"]]
 
-class ForumClient:
+class ForumScraper:
     """Forum client for WorldQuant BRAIN support site, using Playwright."""
     
     def __init__(self):
@@ -118,7 +118,7 @@ class ForumClient:
     async def _get_browser_context(self, p: async_playwright, email: str, password: str):
         """Authenticate and return a browser context with the session."""
         # Import brain_client here to avoid circular dependency
-        from platform_functions import brain_client
+        from .client import brain_client
         
         log("Authenticating with BRAIN platform...", "INFO")
         auth_result = await brain_client.authenticate(email, password)
@@ -400,8 +400,8 @@ class ForumClient:
                     await browser.close()
 
 # Initialize forum client
-forum_client = ForumClient()
+forum_scraper = ForumScraper()
 
 # The main block is for testing and won't be run by the MCP server.
 if __name__ == "__main__":
-    print("📚 WorldQuant BRAIN Forum Functions - This script provides the ForumClient class.", file=sys.stderr)
+    print("📚 WorldQuant BRAIN Forum Functions - This script provides the ForumScraper class.", file=sys.stderr)
