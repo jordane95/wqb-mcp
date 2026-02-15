@@ -215,10 +215,20 @@ class TutorialPageResponse(BaseModel):
     def __str__(self) -> str:
         by_type = Counter(item.type for item in self.content)
         top_types = ", ".join(f"{k}:{v}" for k, v in by_type.most_common(3))
+        first_preview = "-"
+        if self.content:
+            first = self.content[0]
+            if isinstance(first.value, str):
+                value_preview = first.value.strip().replace("\n", " ")
+            else:
+                value_preview = str(first.value)
+            if len(value_preview) > 180:
+                value_preview = value_preview[:180] + "..."
+            first_preview = f"{first.type}: {value_preview}"
         return (
             f"tutorial-page: {self.id} | title={self.title or '-'} | "
             f"category={self.category or '-'} | content_items={len(self.content)} | "
-            f"types={top_types or '-'}"
+            f"types={top_types or '-'} | first={first_preview}"
         )
 
 
