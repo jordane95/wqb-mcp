@@ -9,6 +9,7 @@ Minimal MCP server for WorldQuant BRAIN platform integration with Claude Code.
 - Biometric authentication support
 - Browser automation for complex workflows
 - Flexible credential management (env vars or system keyring)
+- Token-efficient tool responses: markdown summaries for readability, with large tabular data persisted to local CSV files instead of returning full payloads.
 
 ## Setup
 
@@ -63,46 +64,6 @@ claude mcp list
 # Restart Claude Code
 exit
 claude
-```
-
-## Package Structure
-
-```
-wqb-mcp/
-├── src/
-│   └── wqb_mcp/
-│       ├── __init__.py
-│       ├── server.py              # Entry point (auto-prompts setup on first run)
-│       ├── setup.py               # CLI credential setup
-│       ├── models.py              # Pydantic models
-│       ├── config.py              # Credential management (env vars + keyring)
-│       ├── forum.py               # Forum scraper (Playwright)
-│       ├── client/
-│       │   ├── __init__.py        # BrainApiClient (composed from mixins)
-│       │   ├── auth.py            # Authentication
-│       │   ├── simulation.py      # Simulations
-│       │   ├── alpha.py           # Alpha management
-│       │   ├── correlation.py     # Correlation checks
-│       │   ├── data.py            # Datasets & datafields
-│       │   ├── diversity.py       # Diversity scoring
-│       │   ├── community.py       # Events, competitions
-│       │   ├── user.py            # Profile, messages, pyramids
-│       │   ├── operators.py       # Operators & selection
-│       │   └── platform_config.py # Platform settings
-│       └── tools/
-│           ├── __init__.py        # FastMCP instance
-│           ├── auth_tools.py
-│           ├── simulation_tools.py
-│           ├── alpha_tools.py
-│           ├── correlation_tools.py
-│           ├── data_tools.py
-│           ├── community_tools.py
-│           ├── user_tools.py
-│           ├── forum_tools.py
-│           └── operators_tools.py
-├── pyproject.toml
-├── requirements.txt
-└── README.md
 ```
 
 ## Usage
