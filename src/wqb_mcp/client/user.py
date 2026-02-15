@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from ..utils import parse_json_or_error
+from ..utils import dataframe_markdown_preview, parse_json_or_error
 from .alpha import AlphaDetailsResponse
 
 IMG_TAG_PATTERN = re.compile(r"<img[^>]+src=\"(data:image/[^\"]+)\"[^>]*>", re.IGNORECASE)
@@ -222,8 +222,21 @@ class PyramidAlphasResponse(BaseModel):
 
     def __str__(self) -> str:
         total = sum(item.alphaCount for item in self.pyramids)
-        non_zero = sum(1 for item in self.pyramids if item.alphaCount > 0)
-        return f"pyramid-alphas: rows={len(self.pyramids)} | total_alpha_count={total} | non_zero_rows={non_zero}"
+        non_zero = [item for item in self.pyramids if item.alphaCount > 0]
+        rows = [
+            {"category": item.category.name, "region": item.region,
+             "delay": item.delay, "alphas": item.alphaCount}
+            for item in sorted(non_zero, key=lambda x: x.alphaCount, reverse=True)
+        ]
+        header = (
+            f"pyramid-alphas: {len(self.pyramids)} categories | "
+            f"total_alphas={total} | with_alphas={len(non_zero)}"
+        )
+        table = dataframe_markdown_preview(
+            rows, preferred_cols=["category", "region", "delay", "alphas"],
+            max_rows=len(rows),
+        )
+        return f"{header}\n\n{table}"
 
 
 class PaymentWindowValue(BaseModel):
