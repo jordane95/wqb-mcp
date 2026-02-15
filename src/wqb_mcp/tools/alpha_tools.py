@@ -1,13 +1,14 @@
 """Alpha MCP tools."""
 
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import List, Literal, Optional
 
 from . import mcp
 from ..client import brain_client
 
 
 @mcp.tool()
-async def get_alpha_details(alpha_id: str) -> Dict[str, Any]:
+async def get_alpha_details(alpha_id: str):
     """
     Get detailed information about an alpha.
 
@@ -17,27 +18,7 @@ async def get_alpha_details(alpha_id: str) -> Dict[str, Any]:
     Returns:
         Detailed alpha information
     """
-    try:
-        return await brain_client.get_alpha_details(alpha_id)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
-
-
-@mcp.tool()
-async def get_alpha_pnl(alpha_id: str) -> Dict[str, Any]:
-    """
-    Get PnL (Profit and Loss) data for an alpha.
-
-    Args:
-        alpha_id: The ID of the alpha
-
-    Returns:
-        PnL data for the alpha
-    """
-    try:
-        return await brain_client.get_alpha_pnl(alpha_id)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_alpha_details(alpha_id))
 
 
 @mcp.tool()
@@ -51,7 +32,7 @@ async def get_user_alphas(
     submission_end_date: Optional[str] = None,
     order: Optional[str] = None,
     hidden: Optional[bool] = None,
-) -> Dict[str, Any]:
+):
     """
     Get user's alphas with advanced filtering, pagination, and sorting.
 
@@ -92,18 +73,15 @@ async def get_user_alphas(
         Dict[str, Any]: A dictionary containing a list of alpha details under the 'results' key,
         along with pagination information. If an error occurs, it returns a dictionary with an 'error' key.
     """
-    try:
-        return await brain_client.get_user_alphas(
-            stage=stage, limit=limit, offset=offset, start_date=start_date,
-            end_date=end_date, submission_start_date=submission_start_date,
-            submission_end_date=submission_end_date, order=order, hidden=hidden
-        )
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_user_alphas(
+        stage=stage, limit=limit, offset=offset, start_date=start_date,
+        end_date=end_date, submission_start_date=submission_start_date,
+        submission_end_date=submission_end_date, order=order, hidden=hidden
+    ))
 
 
 @mcp.tool()
-async def submit_alpha(alpha_id: str) -> Dict[str, Any]:
+async def submit_alpha(alpha_id: str):
     """
     Submit an alpha for production.
 
@@ -115,54 +93,48 @@ async def submit_alpha(alpha_id: str) -> Dict[str, Any]:
     Returns:
         Submission result
     """
-    try:
-        success = await brain_client.submit_alpha(alpha_id)
-        return {"success": success}
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.submit_alpha(alpha_id))
 
 
 @mcp.tool()
 async def set_alpha_properties(alpha_id: str, name: Optional[str] = None,
                                color: Optional[str] = None, tags: Optional[List[str]] = None,
                                selection_desc: Optional[str] = None, combo_desc: Optional[str] = None,
-                               regular_desc: Optional[str] = None) -> Dict[str, Any]:
+                               regular_desc: Optional[str] = None):
     """Update alpha properties (name, color, tags, descriptions)."""
-    try:
-        return await brain_client.set_alpha_properties(alpha_id, name, color, tags, selection_desc, combo_desc, regular_desc)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.set_alpha_properties(alpha_id, name, color, tags, selection_desc, combo_desc, regular_desc))
 
 
 @mcp.tool()
-async def get_record_sets(alpha_id: str) -> Dict[str, Any]:
-    """List available record sets for an alpha."""
-    try:
-        return await brain_client.get_record_sets(alpha_id)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+async def get_record_set_data(
+    alpha_id: str,
+    record_set_name: Literal["pnl", "sharpe", "turnover", "daily-pnl", "yearly-stats"],
+    output_path: Optional[str] = None,
+):
+    """Fetch a record set, save it locally as CSV, and return markdown summary."""
+    data = await brain_client.get_record_set_data(alpha_id, record_set_name)
+    if output_path:
+        target = Path(output_path)
+    else:
+        safe_name = record_set_name.replace("-", "_")
+        target = Path("assets") / "recordsets" / f"{alpha_id}_{safe_name}.csv"
+
+    saved = data.save_csv(target)
+    headers = [p.name for p in data.schema_.properties]
+    headers_text = ", ".join(headers) if headers else "(no schema properties)"
+    return (
+        f"Saved recordset CSV\n"
+        f"- alpha_id: `{alpha_id}`\n"
+        f"- record_set: `{record_set_name}`\n"
+        f"- path: `{saved}`\n"
+        f"- rows: `{len(data.records)}`\n"
+        f"- columns: `{len(data.schema_.properties)}`\n"
+        f"- headers: `{headers_text}`"
+    )
 
 
 @mcp.tool()
-async def get_record_set_data(alpha_id: str, record_set_name: str) -> Dict[str, Any]:
-    """Get data from a specific record set."""
-    try:
-        return await brain_client.get_record_set_data(alpha_id, record_set_name)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
-
-
-@mcp.tool()
-async def get_alpha_yearly_stats(alpha_id: str) -> Dict[str, Any]:
-    """Get yearly statistics for an alpha."""
-    try:
-        return await brain_client.get_alpha_yearly_stats(alpha_id)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
-
-
-@mcp.tool()
-async def value_factor_trendScore(start_date: str, end_date: str) -> Dict[str, Any]:
+async def value_factor_trendScore(start_date: str, end_date: str):
     """Compute and return the diversity score for REGULAR alphas in a submission-date window.
     This function calculate the diversity of the users' submission, by checking the diversity, we can have a good understanding on the valuefactor's trend.
     This MCP tool wraps BrainApiClient.value_factor_trendScore and always uses submission dates (OS).
@@ -174,17 +146,11 @@ async def value_factor_trendScore(start_date: str, end_date: str) -> Dict[str, A
 
     Returns: compact JSON with diversity_score, N, A, P, P_max, S_A, S_P, S_H, per_pyramid_counts
     """
-    try:
-        return await brain_client.value_factor_trendScore(start_date=start_date, end_date=end_date)
-    except Exception as e:
-        return {"error": str(e)}
+    return str(await brain_client.value_factor_trendScore(start_date=start_date, end_date=end_date))
 
 
 @mcp.tool()
 async def performance_comparison(alpha_id: str, team_id: Optional[str] = None,
-                                 competition: Optional[str] = None) -> Dict[str, Any]:
+                                 competition: Optional[str] = None):
     """Get performance comparison data for an alpha."""
-    try:
-        return await brain_client.performance_comparison(alpha_id, team_id, competition)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.performance_comparison(alpha_id, team_id, competition))

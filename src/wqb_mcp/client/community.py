@@ -1,6 +1,7 @@
 """Community mixin for BrainApiClient."""
 
 from typing import Any, Dict, Optional
+from .common import parse_json_or_error
 
 
 class CommunityMixin:
@@ -12,7 +13,7 @@ class CommunityMixin:
         try:
             response = self.session.get(f"{self.base_url}/events")
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, "/events")
         except Exception as e:
             self.log(f"Failed to get events: {str(e)}", "ERROR")
             raise
@@ -28,12 +29,12 @@ class CommunityMixin:
             else:
                 user_response = self.session.get(f"{self.base_url}/users/self")
                 if user_response.status_code == 200:
-                    user_data = user_response.json()
+                    user_data = parse_json_or_error(user_response, "/users/self")
                     params['user'] = user_data.get('id')
 
             response = self.session.get(f"{self.base_url}/consultant/boards/leader", params=params)
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, "/consultant/boards/leader")
         except Exception as e:
             self.log(f"Failed to get leaderboard: {str(e)}", "ERROR")
             raise
@@ -45,14 +46,14 @@ class CommunityMixin:
             if not user_id:
                 user_response = self.session.get(f"{self.base_url}/users/self")
                 if user_response.status_code == 200:
-                    user_data = user_response.json()
+                    user_data = parse_json_or_error(user_response, "/users/self")
                     user_id = user_data.get('id')
                 else:
                     user_id = 'self'
 
             response = self.session.get(f"{self.base_url}/users/{user_id}/competitions")
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, f"/users/{user_id}/competitions")
         except Exception as e:
             self.log(f"Failed to get user competitions: {str(e)}", "ERROR")
             raise
@@ -63,7 +64,7 @@ class CommunityMixin:
         try:
             response = self.session.get(f"{self.base_url}/competitions/{competition_id}")
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, f"/competitions/{competition_id}")
         except Exception as e:
             self.log(f"Failed to get competition details: {str(e)}", "ERROR")
             raise
@@ -74,7 +75,7 @@ class CommunityMixin:
         try:
             response = self.session.get(f"{self.base_url}/competitions/{competition_id}/agreement")
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, f"/competitions/{competition_id}/agreement")
         except Exception as e:
             self.log(f"Failed to get competition agreement: {str(e)}", "ERROR")
             raise

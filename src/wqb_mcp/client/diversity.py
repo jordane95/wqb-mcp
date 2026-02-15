@@ -3,9 +3,19 @@
 import math
 from typing import Any, Dict, Optional
 
+from pydantic import BaseModel
+
 
 class DiversityMixin:
     """Handles value_factor_trendScore and _is_atom."""
+
+    @staticmethod
+    def _as_dict(data: Any) -> Dict[str, Any]:
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, BaseModel):
+            return data.model_dump()
+        return {}
 
     def _is_atom(self, detail: Optional[Dict[str, Any]]) -> bool:
         """Match atom detection used in extract_regular_alphas.py:
@@ -66,11 +76,11 @@ class DiversityMixin:
         """
         await self.ensure_authenticated()
         alphas_resp = await self.get_user_alphas(stage='OS', limit=500, submission_start_date=start_date, submission_end_date=end_date)
+        alphas_dict = self._as_dict(alphas_resp)
+        if 'results' not in alphas_dict:
+            return {'error': 'Unexpected response from get_user_alphas', 'raw': str(alphas_resp)}
 
-        if not isinstance(alphas_resp, dict) or 'results' not in alphas_resp:
-            return {'error': 'Unexpected response from get_user_alphas', 'raw': alphas_resp}
-
-        alphas = alphas_resp['results']
+        alphas = alphas_dict['results']
         regular = [a for a in alphas if a.get('type') == 'REGULAR']
 
         # Fetch details for each regular alpha
@@ -82,6 +92,7 @@ class DiversityMixin:
                 detail = await self.get_alpha_details(a.get('id'))
             except Exception:
                 continue
+            detail = self._as_dict(detail)
 
             is_atom = self._is_atom(detail)
             if is_atom:
@@ -109,6 +120,7 @@ class DiversityMixin:
         P_max = None
         try:
             pm = await self.get_pyramid_multipliers()
+            pm = self._as_dict(pm)
             if isinstance(pm, dict) and 'pyramids' in pm:
                 pyramids_list = pm.get('pyramids') or []
                 P_max = len(pyramids_list)

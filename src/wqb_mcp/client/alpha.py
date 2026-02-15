@@ -1,270 +1,351 @@
 """Alpha management mixin for BrainApiClient."""
+from enum import Enum
+from typing import Any, Dict, List, Optional, Union
 
-import asyncio
-from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field, model_validator
+from .common import parse_json_or_error
+
+
+class AlphaRegion(str, Enum):
+    USA = "USA"
+    GLB = "GLB"
+    EUR = "EUR"
+    ASI = "ASI"
+    CHN = "CHN"
+    AMR = "AMR"
+    IND = "IND"
+
+
+class AlphaUniverse(str, Enum):
+    TOP3000 = "TOP3000"
+    TOP1000 = "TOP1000"
+    TOP500 = "TOP500"
+    TOP200 = "TOP200"
+    ILLIQUID_MINVOL1M = "ILLIQUID_MINVOL1M"
+    TOPSP500 = "TOPSP500"
+    MINVOL1M = "MINVOL1M"
+    TOPDIV3000 = "TOPDIV3000"
+    TOP2500 = "TOP2500"
+    TOP1200 = "TOP1200"
+    TOP800 = "TOP800"
+    TOP400 = "TOP400"
+    TOPCS1600 = "TOPCS1600"
+    TOP2000U = "TOP2000U"
+    TOP600 = "TOP600"
+
+
+REGION_UNIVERSE_MAP: Dict[AlphaRegion, set[AlphaUniverse]] = {
+    AlphaRegion.USA: {
+        AlphaUniverse.TOP3000,
+        AlphaUniverse.TOP1000,
+        AlphaUniverse.TOP500,
+        AlphaUniverse.TOP200,
+        AlphaUniverse.ILLIQUID_MINVOL1M,
+        AlphaUniverse.TOPSP500,
+    },
+    AlphaRegion.GLB: {
+        AlphaUniverse.TOP3000,
+        AlphaUniverse.MINVOL1M,
+        AlphaUniverse.TOPDIV3000,
+    },
+    AlphaRegion.EUR: {
+        AlphaUniverse.TOP2500,
+        AlphaUniverse.TOP1200,
+        AlphaUniverse.TOP800,
+        AlphaUniverse.TOP400,
+        AlphaUniverse.ILLIQUID_MINVOL1M,
+        AlphaUniverse.TOPCS1600,
+    },
+    AlphaRegion.ASI: {
+        AlphaUniverse.MINVOL1M,
+        AlphaUniverse.ILLIQUID_MINVOL1M,
+    },
+    AlphaRegion.CHN: {
+        AlphaUniverse.TOP2000U,
+    },
+    AlphaRegion.AMR: {
+        AlphaUniverse.TOP600,
+    },
+    AlphaRegion.IND: {
+        AlphaUniverse.TOP500,
+    },
+}
+
+
+class AlphaSettings(BaseModel):
+    instrumentType: str
+    region: AlphaRegion
+    universe: AlphaUniverse
+    delay: int
+    decay: float
+    neutralization: str
+    truncation: float
+    pasteurization: str
+    unitHandling: str
+    nanHandling: str
+    maxTrade: str
+    maxPosition: str
+    language: str
+    visualization: bool
+    startDate: str
+    endDate: str
+
+    @model_validator(mode="after")
+    def validate_region_universe(self) -> "AlphaSettings":
+        if self.region is None or self.universe is None:
+            return self
+
+        allowed = REGION_UNIVERSE_MAP.get(self.region)
+        if allowed is None or self.universe in allowed:
+            return self
+
+        allowed_values = ", ".join(sorted(u.value for u in allowed))
+        raise ValueError(
+            f"Invalid universe '{self.universe.value}' for region '{self.region.value}'. "
+            f"Allowed universes: {allowed_values}"
+        )
+
+
+class AlphaRegular(BaseModel):
+    code: str
+    description: Optional[str] = None
+    operatorCount: int
+
+
+class AlphaRegularPatch(BaseModel):
+    description: Optional[str] = None
+
+
+class AlphaPropertiesPatch(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    name: Optional[str] = None
+    color: Optional[str] = None
+    tags: Optional[List[str]] = None
+    selectionDesc: Optional[str] = None
+    comboDesc: Optional[str] = None
+    regular: Optional[AlphaRegularPatch] = None
+
+
+class AlphaIdName(BaseModel):
+    id: Optional[str] = None
+    name: Optional[str] = None
+
+
+class AlphaNamedMultiplier(BaseModel):
+    name: Optional[str] = None
+    multiplier: Optional[float] = None
+
+
+class AlphaThemeMultiplier(AlphaIdName):
+    multiplier: Optional[float] = None
+
+
+class AlphaCheckBase(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    name: str
+    result: str
+
+
+class AlphaCheckLimitValue(AlphaCheckBase):
+    limit: float
+    value: float
+
+
+class AlphaCheckLimitValueRatio(AlphaCheckLimitValue):
+    ratio: float
+
+
+class AlphaCheckCompetitions(AlphaCheckBase):
+    competitions: List[AlphaIdName]
+
+
+class AlphaCheckPyramids(AlphaCheckBase):
+    effective: int
+    multiplier: float
+    pyramids: List[AlphaNamedMultiplier]
+
+
+class AlphaCheckThemes(AlphaCheckBase):
+    themes: List[AlphaThemeMultiplier]
+
+
+AlphaCheck = Union[
+    AlphaCheckLimitValueRatio,
+    AlphaCheckLimitValue,
+    AlphaCheckCompetitions,
+    AlphaCheckPyramids,
+    AlphaCheckThemes,
+    AlphaCheckBase,
+]
+
+
+class AlphaPerformanceBlock(BaseModel):
+    pnl: float
+    bookSize: float
+    longCount: int
+    shortCount: int
+    turnover: float
+    returns: float
+    drawdown: float
+    margin: float
+    sharpe: float
+    fitness: float
+    startDate: Optional[str] = None
+
+
+class AlphaIsMetrics(AlphaPerformanceBlock):
+    glbAmer: Optional[AlphaPerformanceBlock] = None
+    glbApac: Optional[AlphaPerformanceBlock] = None
+    glbEmea: Optional[AlphaPerformanceBlock] = None
+    investabilityConstrained: AlphaPerformanceBlock
+    riskNeutralized: Optional[AlphaPerformanceBlock] = None
+    checks: List[AlphaCheck] = Field(default_factory=list)
+
+
+class AlphaPyramidThemes(BaseModel):
+    effective: Optional[int] = None
+    pyramids: Optional[List[AlphaNamedMultiplier]] = None
+
+
+class AlphaTrainTestMetrics(BaseModel):
+    pnl: Optional[float] = None
+    bookSize: Optional[float] = None
+    longCount: Optional[int] = None
+    shortCount: Optional[int] = None
+    turnover: Optional[float] = None
+    returns: Optional[float] = None
+    drawdown: Optional[float] = None
+    margin: Optional[float] = None
+    sharpe: Optional[float] = None
+    fitness: Optional[float] = None
+    startDate: Optional[str] = None
+    glbAmer: Optional[AlphaPerformanceBlock] = None
+    glbApac: Optional[AlphaPerformanceBlock] = None
+    glbEmea: Optional[AlphaPerformanceBlock] = None
+    investabilityConstrained: Optional[AlphaPerformanceBlock] = None
+    riskNeutralized: Optional[AlphaPerformanceBlock] = None
+
+
+class AlphaOsMetrics(BaseModel):
+    startDate: Optional[str] = None
+    turnover: Optional[float] = None
+    returns: Optional[float] = None
+    drawdown: Optional[float] = None
+    margin: Optional[float] = None
+    fitness: Optional[float] = None
+    preCloseSharpe: Optional[float] = None
+    sharpe: Optional[float] = None
+    sharpe60: Optional[float] = None
+    sharpe125: Optional[float] = None
+    sharpe250: Optional[float] = None
+    sharpe500: Optional[float] = None
+    osISSharpeRatio: Optional[float] = None
+    preCloseSharpeRatio: Optional[float] = None
+    checks: List[AlphaCheck] = Field(default_factory=list)
+
+
+class AlphaDetailsResponse(BaseModel):
+    model_config = {"populate_by_name": True}
+
+    id: str
+    type: str
+    author: str
+    settings: AlphaSettings
+    regular: AlphaRegular
+    dateCreated: str
+    dateSubmitted: Optional[str] = None
+    dateModified: str
+    name: Optional[str] = None
+    favorite: bool
+    hidden: bool
+    color: Optional[str] = None
+    category: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    classifications: List[AlphaIdName] = Field(default_factory=list)
+    grade: Optional[str] = None
+    stage: str
+    status: str
+    is_: AlphaIsMetrics = Field(alias="is")
+    os: Optional[AlphaOsMetrics] = None
+    train: Optional[AlphaTrainTestMetrics] = None
+    test: Optional[AlphaTrainTestMetrics] = None
+    prod: Optional[AlphaTrainTestMetrics] = None
+    competitions: Optional[List[AlphaIdName]] = None
+    themes: Optional[List[AlphaThemeMultiplier]] = None
+    pyramids: Optional[List[AlphaNamedMultiplier]] = None
+    pyramidThemes: Optional[AlphaPyramidThemes] = None
+    team: Optional[Dict[str, Any]] = None
+    osmosisPoints: Optional[float] = None
+
+    def __str__(self) -> str:
+        region = self.settings.region.value if self.settings and self.settings.region else "-"
+        return (
+            f"alpha {self.id} | {self.type or 'UNKNOWN'} | "
+            f"region={region} | stage={self.stage or '-'} | status={self.status or '-'}"
+        )
 
 
 class AlphaMixin:
-    """Handles alpha details, user alphas, submit, set properties, record sets, PnL, yearly stats."""
+    """Handles alpha details, submit, and property updates."""
 
-    async def get_alpha_details(self, alpha_id: str) -> Dict[str, Any]:
+    async def get_alpha_details(self, alpha_id: str) -> AlphaDetailsResponse:
         """Get detailed information about an alpha."""
         await self.ensure_authenticated()
-        try:
-            response = self.session.get(f"{self.base_url}/alphas/{alpha_id}")
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            self.log(f"Failed to get alpha details: {str(e)}", "ERROR")
-            raise
+        response = self.session.get(f"{self.base_url}/alphas/{alpha_id}")
+        response.raise_for_status()
+        return AlphaDetailsResponse.model_validate(parse_json_or_error(response, f"/alphas/{alpha_id}"))
 
-    async def get_alpha_pnl(self, alpha_id: str) -> Dict[str, Any]:
-        """Get PnL data for an alpha with retry logic."""
-        await self.ensure_authenticated()
-
-        max_retries = 5
-        retry_delay = 2  # seconds
-
-        for attempt in range(max_retries):
-            try:
-                self.log(f"Attempting to get PnL for alpha {alpha_id} (attempt {attempt + 1}/{max_retries})", "INFO")
-
-                response = self.session.get(f"{self.base_url}/alphas/{alpha_id}/recordsets/pnl")
-                response.raise_for_status()
-
-                # Some alphas may return 204 No Content or an empty body
-                text = (response.text or "").strip()
-                if not text:
-                    if attempt < max_retries - 1:
-                        self.log(f"Empty PnL response for {alpha_id}, retrying in {retry_delay} seconds...", "WARNING")
-                        await asyncio.sleep(retry_delay)
-                        retry_delay *= 1.5  # Exponential backoff
-                        continue
-                    else:
-                        self.log(f"Empty PnL response after {max_retries} attempts for {alpha_id}", "WARNING")
-                        return {}
-
-                try:
-                    pnl_data = response.json()
-                    if pnl_data:
-                        self.log(f"Successfully retrieved PnL data for alpha {alpha_id}", "SUCCESS")
-                        return pnl_data
-                    else:
-                        if attempt < max_retries - 1:
-                            self.log(f"Empty PnL JSON for {alpha_id}, retrying in {retry_delay} seconds...", "WARNING")
-                            await asyncio.sleep(retry_delay)
-                            retry_delay *= 1.5
-                            continue
-                        else:
-                            self.log(f"Empty PnL JSON after {max_retries} attempts for {alpha_id}", "WARNING")
-                            return {}
-
-                except Exception as parse_err:
-                    if attempt < max_retries - 1:
-                        self.log(f"PnL JSON parse failed for {alpha_id} (attempt {attempt + 1}), retrying in {retry_delay} seconds...", "WARNING")
-                        await asyncio.sleep(retry_delay)
-                        retry_delay *= 1.5
-                        continue
-                    else:
-                        self.log(f"PnL JSON parse failed for {alpha_id} after {max_retries} attempts: {parse_err}", "WARNING")
-                        return {}
-
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    self.log(f"Failed to get alpha PnL for {alpha_id} (attempt {attempt + 1}), retrying in {retry_delay} seconds: {str(e)}", "WARNING")
-                    await asyncio.sleep(retry_delay)
-                    retry_delay *= 1.5
-                    continue
-                else:
-                    self.log(f"Failed to get alpha PnL for {alpha_id} after {max_retries} attempts: {str(e)}", "ERROR")
-                    raise
-
-        return {}
-
-    async def get_user_alphas(
-        self,
-        stage: str = "OS",
-        limit: int = 30,
-        offset: int = 0,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        submission_start_date: Optional[str] = None,
-        submission_end_date: Optional[str] = None,
-        order: Optional[str] = None,
-        hidden: Optional[bool] = None,
-    ) -> Dict[str, Any]:
-        """Get user's alphas with advanced filtering."""
-        await self.ensure_authenticated()
-
-        try:
-            params = {
-                "stage": stage,
-                "limit": limit,
-                "offset": offset,
-            }
-            if start_date:
-                params["dateCreated>"] = start_date
-            if end_date:
-                params["dateCreated<"] = end_date
-            if submission_start_date:
-                params["dateSubmitted>"] = submission_start_date
-            if submission_end_date:
-                params["dateSubmitted<"] = submission_end_date
-            if order:
-                params["order"] = order
-            if hidden is not None:
-                params["hidden"] = str(hidden).lower()
-
-            response = self.session.get(f"{self.base_url}/users/self/alphas", params=params)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            self.log(f"Failed to get user alphas: {str(e)}", "ERROR")
-            raise
-
-    async def submit_alpha(self, alpha_id: str) -> bool:
+    async def submit_alpha(self, alpha_id: str) -> Dict[str, Any]:
         """Submit an alpha for production."""
         await self.ensure_authenticated()
+        response = self.session.post(f"{self.base_url}/alphas/{alpha_id}/submit")
+        response.raise_for_status()
+        return {
+            "submitted": True,
+            "alpha_id": alpha_id,
+            "status_code": response.status_code,
+        }
 
-        try:
-            self.log(f"Submitting alpha {alpha_id} for production...", "INFO")
-
-            response = self.session.post(f"{self.base_url}/alphas/{alpha_id}/submit")
-            response.raise_for_status()
-
-            self.log(f"Alpha {alpha_id} submitted successfully", "SUCCESS")
-            return response.__dict__
-
-        except Exception as e:
-            self.log(f"Failed to submit alpha: {str(e)}", "ERROR")
-            return False
-
-    async def set_alpha_properties(self, alpha_id: str, name: Optional[str] = None,
-                                   color: Optional[str] = None, tags: Optional[List[str]] = None,
-                                   selection_desc: Optional[str] = None, combo_desc: Optional[str] = None,
-                                   regular_desc: Optional[str] = None) -> Dict[str, Any]:
+    async def set_alpha_properties(
+        self,
+        alpha_id: str,
+        name: Optional[str] = None,
+        color: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        selection_desc: Optional[str] = None,
+        combo_desc: Optional[str] = None,
+        regular_desc: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Update alpha properties (name, color, tags, descriptions)."""
         await self.ensure_authenticated()
 
-        try:
-            data = {}
-            if name:
-                data['name'] = name
-            if color:
-                data['color'] = color
-            if tags:
-                data['tags'] = tags
-            if selection_desc:
-                data['selectionDesc'] = selection_desc
-            if combo_desc:
-                data['comboDesc'] = combo_desc
-            if regular_desc:
-                # REGULAR alphas require nested object, not camelCase
-                data['regular'] = {'description': regular_desc}
+        payload = AlphaPropertiesPatch(
+            name=name,
+            color=color,
+            tags=tags,
+            selectionDesc=selection_desc,
+            comboDesc=combo_desc,
+            regular=AlphaRegularPatch(description=regular_desc) if regular_desc is not None else None,
+        )
+        data = payload.model_dump(exclude_none=True)
 
-            response = self.session.patch(f"{self.base_url}/alphas/{alpha_id}", json=data)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            self.log(f"Failed to set alpha properties: {str(e)}", "ERROR")
-            raise
+        response = self.session.patch(f"{self.base_url}/alphas/{alpha_id}", json=data)
+        response.raise_for_status()
+        return parse_json_or_error(response, f"/alphas/{alpha_id}")
 
-    async def get_record_sets(self, alpha_id: str) -> Dict[str, Any]:
-        """List available record sets for an alpha."""
-        await self.ensure_authenticated()
-        try:
-            response = self.session.get(f"{self.base_url}/alphas/{alpha_id}/recordsets")
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            self.log(f"Failed to get record sets: {str(e)}", "ERROR")
-            raise
-
-    async def get_record_set_data(self, alpha_id: str, record_set_name: str) -> Dict[str, Any]:
-        """Get data from a specific record set."""
-        await self.ensure_authenticated()
-        try:
-            response = self.session.get(f"{self.base_url}/alphas/{alpha_id}/recordsets/{record_set_name}")
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            self.log(f"Failed to get record set data: {str(e)}", "ERROR")
-            raise
-
-    async def get_alpha_yearly_stats(self, alpha_id: str) -> Dict[str, Any]:
-        """Get yearly statistics for an alpha with retry logic."""
-        await self.ensure_authenticated()
-
-        max_retries = 5
-        retry_delay = 2  # seconds
-
-        for attempt in range(max_retries):
-            try:
-                self.log(f"Attempting to get yearly stats for alpha {alpha_id} (attempt {attempt + 1}/{max_retries})", "INFO")
-
-                response = self.session.get(f"{self.base_url}/alphas/{alpha_id}/recordsets/yearly-stats")
-                response.raise_for_status()
-
-                # Check if response has content
-                text = (response.text or "").strip()
-                if not text:
-                    if attempt < max_retries - 1:
-                        self.log(f"Empty yearly stats response for {alpha_id}, retrying in {retry_delay} seconds...", "WARNING")
-                        await asyncio.sleep(retry_delay)
-                        retry_delay *= 1.5  # Exponential backoff
-                        continue
-                    else:
-                        self.log(f"Empty yearly stats response after {max_retries} attempts for {alpha_id}", "WARNING")
-                        return {}
-
-                try:
-                    yearly_stats = response.json()
-                    if yearly_stats:
-                        self.log(f"Successfully retrieved yearly stats for alpha {alpha_id}", "SUCCESS")
-                        return yearly_stats
-                    else:
-                        if attempt < max_retries - 1:
-                            self.log(f"Empty yearly stats JSON for {alpha_id}, retrying in {retry_delay} seconds...", "WARNING")
-                            await asyncio.sleep(retry_delay)
-                            retry_delay *= 1.5
-                            continue
-                        else:
-                            self.log(f"Empty yearly stats JSON after {max_retries} attempts for {alpha_id}", "WARNING")
-                            return {}
-
-                except Exception as parse_err:
-                    if attempt < max_retries - 1:
-                        self.log(f"Yearly stats JSON parse failed for {alpha_id} (attempt {attempt + 1}), retrying in {retry_delay} seconds...", "WARNING")
-                        await asyncio.sleep(retry_delay)
-                        retry_delay *= 1.5
-                        continue
-                    else:
-                        self.log(f"Yearly stats JSON parse failed for {alpha_id} after {max_retries} attempts: {parse_err}", "WARNING")
-                        return {}
-
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    self.log(f"Failed to get alpha yearly stats for {alpha_id} (attempt {attempt + 1}), retrying in {retry_delay} seconds: {str(e)}", "WARNING")
-                    await asyncio.sleep(retry_delay)
-                    retry_delay *= 1.5
-                    continue
-                else:
-                    self.log(f"Failed to get alpha yearly stats for {alpha_id} after {max_retries} attempts: {str(e)}", "ERROR")
-                    raise
-
-        return {}
-
-    async def performance_comparison(self, alpha_id: str, team_id: Optional[str] = None,
-                                     competition: Optional[str] = None) -> Dict[str, Any]:
+    async def performance_comparison(
+        self, alpha_id: str, team_id: Optional[str] = None, competition: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Get performance comparison data for an alpha."""
         await self.ensure_authenticated()
-        try:
-            params = {"teamId": team_id, "competition": competition}
-            params = {k: v for k, v in params.items() if v is not None}
+        params = {"teamId": team_id, "competition": competition}
+        params = {k: v for k, v in params.items() if v is not None}
 
-            response = self.session.get(f"{self.base_url}/alphas/{alpha_id}/performance-comparison", params=params)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            self.log(f"Failed to get performance comparison: {str(e)}", "ERROR")
-            raise
+        response = self.session.get(f"{self.base_url}/alphas/{alpha_id}/performance-comparison", params=params)
+        if response.status_code == 404:
+            data = parse_json_or_error(response, f"/alphas/{alpha_id}/performance-comparison")
+            return {"available": False, "detail": data.get("detail", "Not found.")}
+        response.raise_for_status()
+        return parse_json_or_error(response, f"/alphas/{alpha_id}/performance-comparison")

@@ -1,27 +1,24 @@
 """Community MCP tools."""
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from . import mcp
 from ..client import brain_client
 
 
 @mcp.tool()
-async def get_events() -> Dict[str, Any]:
+async def get_events():
     """
     Get available events and competitions.
 
     Returns:
         Available events and competitions
     """
-    try:
-        return await brain_client.get_events()
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_events())
 
 
 @mcp.tool()
-async def get_leaderboard(user_id: Optional[str] = None) -> Dict[str, Any]:
+async def get_leaderboard(user_id: Optional[str] = None):
     """
     Get leaderboard data.
 
@@ -31,34 +28,22 @@ async def get_leaderboard(user_id: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         Leaderboard data
     """
-    try:
-        return await brain_client.get_leaderboard(user_id)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_leaderboard(user_id))
 
 
 @mcp.tool()
-async def get_user_competitions(user_id: Optional[str] = None) -> Dict[str, Any]:
+async def get_user_competitions(user_id: Optional[str] = None):
     """Get list of competitions that the user is participating in."""
-    try:
-        return await brain_client.get_user_competitions(user_id)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_user_competitions(user_id))
 
 
 @mcp.tool()
-async def get_competition_details(competition_id: str) -> Dict[str, Any]:
+async def get_competition_details(competition_id: str):
     """Get detailed information about a specific competition."""
-    try:
-        return await brain_client.get_competition_details(competition_id)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_competition_details(competition_id))
 
 
 @mcp.tool()
-async def get_competition_agreement(competition_id: str) -> Dict[str, Any]:
+async def get_competition_agreement(competition_id: str):
     """Get the rules, terms, and agreement for a specific competition."""
-    try:
-        return await brain_client.get_competition_agreement(competition_id)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_competition_agreement(competition_id))

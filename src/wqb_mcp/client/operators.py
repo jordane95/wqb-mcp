@@ -1,6 +1,7 @@
 """Operators mixin for BrainApiClient."""
 
 from typing import Any, Dict
+from .common import parse_json_or_error
 
 
 class OperatorsMixin:
@@ -12,7 +13,7 @@ class OperatorsMixin:
         try:
             response = self.session.get(f"{self.base_url}/operators")
             response.raise_for_status()
-            operators_data = response.json()
+            operators_data = parse_json_or_error(response, "/operators")
 
             if isinstance(operators_data, list):
                 return {"operators": operators_data, "count": len(operators_data)}
@@ -45,7 +46,7 @@ class OperatorsMixin:
 
             response = self.session.get(f"{self.base_url}/simulations/super-selection", params=selection_data)
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, "/simulations/super-selection")
         except Exception as e:
             self.log(f"Failed to run selection: {str(e)}", "ERROR")
             raise

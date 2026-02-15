@@ -5,10 +5,76 @@ import os
 import pathlib
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from pydantic import BaseModel, Field
+from .common import parse_json_or_error
+from .alpha import AlphaDetailsResponse
+
+
+class UserAlphasResponse(BaseModel):
+    count: int
+    next: Optional[str] = None
+    previous: Optional[str] = None
+    results: List[AlphaDetailsResponse] = Field(default_factory=list)
+
+    def __str__(self) -> str:
+        top = ", ".join(
+            f"{a.id}({(a.settings.region.value if a.settings and a.settings.region else '-')}:"
+            f"{a.stage or '-'}:{a.status or '-'})"
+            for a in self.results[:3]
+        )
+        regions = sorted(
+            {
+                a.settings.region.value
+                for a in self.results
+                if a.settings and a.settings.region is not None
+            }
+        )
+        regions_text = ",".join(regions) if regions else "-"
+        return (
+            f"alphas: {self.count} total | showing {len(self.results)} | "
+            f"regions={regions_text} | {top}"
+        )
 
 
 class UserMixin:
     """Handles profile, messages, activities, pyramids, docs, payments, forum delegation."""
+
+    async def get_user_alphas(
+        self,
+        stage: str = "OS",
+        limit: int = 30,
+        offset: int = 0,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        submission_start_date: Optional[str] = None,
+        submission_end_date: Optional[str] = None,
+        order: Optional[str] = None,
+        hidden: Optional[bool] = None,
+    ) -> UserAlphasResponse:
+        """Get user's alphas with advanced filtering."""
+        await self.ensure_authenticated()
+
+        params = {
+            "stage": stage,
+            "limit": limit,
+            "offset": offset,
+        }
+        if start_date:
+            params["dateCreated>"] = start_date
+        if end_date:
+            params["dateCreated<"] = end_date
+        if submission_start_date:
+            params["dateSubmitted>"] = submission_start_date
+        if submission_end_date:
+            params["dateSubmitted<"] = submission_end_date
+        if order:
+            params["order"] = order
+        if hidden is not None:
+            params["hidden"] = str(hidden).lower()
+
+        response = self.session.get(f"{self.base_url}/users/self/alphas", params=params)
+        response.raise_for_status()
+        return UserAlphasResponse.model_validate(parse_json_or_error(response, "/users/self/alphas"))
 
     async def get_user_profile(self, user_id: str = "self") -> Dict[str, Any]:
         """Get user profile information."""
@@ -16,7 +82,7 @@ class UserMixin:
         try:
             response = self.session.get(f"{self.base_url}/users/{user_id}")
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, f"/users/{user_id}")
         except Exception as e:
             self.log(f"Failed to get user profile: {str(e)}", "ERROR")
             raise
@@ -27,7 +93,7 @@ class UserMixin:
         try:
             response = self.session.get(f"{self.base_url}/tutorials")
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, "/tutorials")
         except Exception as e:
             self.log(f"Failed to get documentations: {str(e)}", "ERROR")
             raise
@@ -116,7 +182,7 @@ class UserMixin:
 
             response = self.session.get(f"{self.base_url}/users/self/messages", params=params)
             response.raise_for_status()
-            data = response.json()
+            data = parse_json_or_error(response, "/users/self/messages")
 
             results = data.get('results', [])
             for msg in results:
@@ -154,7 +220,7 @@ class UserMixin:
 
             response = self.session.get(f"{self.base_url}/users/{user_id}/activities", params=params)
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, f"/users/{user_id}/activities")
         except Exception as e:
             self.log(f"Failed to get user activities: {str(e)}", "ERROR")
             raise
@@ -165,7 +231,7 @@ class UserMixin:
         try:
             response = self.session.get(f"{self.base_url}/users/self/activities/pyramid-multipliers")
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, "/users/self/activities/pyramid-multipliers")
         except Exception as e:
             self.log(f"Failed to get pyramid multipliers: {str(e)}", "ERROR")
             raise
@@ -202,7 +268,7 @@ class UserMixin:
                         }
 
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, "/users/self/activities/pyramid-alphas")
         except Exception as e:
             self.log(f"Failed to get pyramid alphas: {str(e)}", "ERROR")
             raise
@@ -213,7 +279,7 @@ class UserMixin:
         try:
             response = self.session.get(f"{self.base_url}/tutorial-pages/{page_id}")
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, f"/tutorial-pages/{page_id}")
         except Exception as e:
             self.log(f"Failed to get documentation page: {str(e)}", "ERROR")
             raise

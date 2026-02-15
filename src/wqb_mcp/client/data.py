@@ -3,6 +3,7 @@
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+from .common import parse_json_or_error
 
 
 class DataMixin:
@@ -27,7 +28,7 @@ class DataMixin:
 
             response = self.session.get(f"{self.base_url}/data-sets", params=params)
             response.raise_for_status()
-            response_json = response.json()
+            response_json = parse_json_or_error(response, "/data-sets")
             response_json['extraNote'] = "if your returned result is 0, you may want to check your parameter by using get_platform_setting_options tool to got correct parameter"
             return response_json
         except Exception as e:
@@ -61,7 +62,7 @@ class DataMixin:
 
             response = self.session.get(f"{self.base_url}/data-fields", params=params)
             response.raise_for_status()
-            response_json = response.json()
+            response_json = parse_json_or_error(response, "/data-fields")
             response_json['extraNote'] = "if your returned result is 0, you may want to check your parameter by using get_platform_setting_options tool to got correct parameter"
             return response_json
         except Exception as e:

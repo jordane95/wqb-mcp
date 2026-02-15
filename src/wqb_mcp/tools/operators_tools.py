@@ -1,26 +1,18 @@
 """Operators MCP tools."""
 
-from typing import Any, Dict
-
 from . import mcp
 from ..client import brain_client
 
 
 @mcp.tool()
-async def get_operators() -> Dict[str, Any]:
+async def get_operators():
     """
     Get available operators for alpha creation.
 
     Returns:
         Dictionary containing operators list and count
     """
-    try:
-        operators = await brain_client.get_operators()
-        if isinstance(operators, list):
-            return {"results": operators, "count": len(operators)}
-        return operators
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_operators())
 
 
 @mcp.tool()
@@ -31,7 +23,7 @@ async def run_selection(
     delay: int = 1,
     selection_limit: int = 1000,
     selection_handling: str = "POSITIVE",
-) -> Dict[str, Any]:
+):
     """
     Run a selection query to filter instruments.
 
@@ -46,16 +38,13 @@ async def run_selection(
     Returns:
         Selection results
     """
-    try:
-        return await brain_client.run_selection(
-            selection, instrument_type, region, delay, selection_limit, selection_handling
-        )
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.run_selection(
+        selection, instrument_type, region, delay, selection_limit, selection_handling
+    ))
 
 
 @mcp.tool()
-async def get_platform_setting_options() -> Dict[str, Any]:
+async def get_platform_setting_options():
     """Discover valid simulation setting options (instrument types, regions, delays, universes, neutralization).
 
     Use this when a simulation request might contain an invalid/mismatched setting. If an AI or user supplies
@@ -65,7 +54,4 @@ async def get_platform_setting_options() -> Dict[str, Any]:
     Returns:
         A structured list of valid combinations and choice lists to validate or fix simulation settings.
     """
-    try:
-        return await brain_client.get_platform_setting_options()
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_platform_setting_options())

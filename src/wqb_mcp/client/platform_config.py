@@ -1,6 +1,7 @@
 """Platform config mixin for BrainApiClient."""
 
 from typing import Any, Dict
+from .common import parse_json_or_error
 
 
 class PlatformConfigMixin:
@@ -14,7 +15,7 @@ class PlatformConfigMixin:
             response = self.session.options(f"{self.base_url}/simulations")
             response.raise_for_status()
 
-            settings_data = response.json()
+            settings_data = parse_json_or_error(response, "/simulations")
             settings_options = settings_data['actions']['POST']['settings']['children']
 
             instrument_type_data = {}

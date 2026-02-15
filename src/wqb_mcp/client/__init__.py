@@ -7,6 +7,7 @@ import requests
 from .auth import AuthMixin
 from .simulation import SimulationMixin
 from .alpha import AlphaMixin
+from .alpha_recordsets import AlphaRecordsetsMixin
 from .correlation import CorrelationMixin
 from .data import DataMixin
 from .diversity import DiversityMixin
@@ -19,6 +20,7 @@ from .platform_config import PlatformConfigMixin
 class BrainApiClient(
     AuthMixin,
     SimulationMixin,
+    AlphaRecordsetsMixin,
     AlphaMixin,
     CorrelationMixin,
     DataMixin,

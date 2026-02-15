@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
+from .common import parse_json_or_error
 
 
 class CorrelationType(str, Enum):
@@ -95,7 +96,7 @@ class CorrelationMixin:
                 response = self.session.get(f"{self.base_url}/alphas/{alpha_id}/correlations/{corr_type.value}")
                 response.raise_for_status()
 
-                data = response.json()
+                data = parse_json_or_error(response, f"/alphas/{alpha_id}/correlations/{corr_type.value}")
                 if not data:
                     last_error = ValueError(f"Empty {corr_type.value} correlation response for {alpha_id}")
                     self.log(str(last_error), "WARNING")
@@ -179,6 +180,8 @@ class CorrelationMixin:
 
         correlation_checks = await self.check_correlation(alpha_id)
         alpha_details = await self.get_alpha_details(alpha_id)
+        if isinstance(alpha_details, BaseModel):
+            alpha_details = alpha_details.model_dump()
 
         return {
             'correlation_checks': correlation_checks,

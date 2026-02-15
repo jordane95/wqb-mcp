@@ -1,14 +1,12 @@
 """Correlation MCP tools."""
 
-from typing import Any, Dict, List, Optional
-
 from . import mcp
 from ..client import brain_client
-from ..client.correlation import CorrelationCheckResponse, CorrelationType
+from ..client.correlation import CorrelationType
 
 
 @mcp.tool()
-async def check_correlation(alpha_id: str, correlation_type: str = "both", threshold: float = 0.7) -> str:
+async def check_correlation(alpha_id: str, correlation_type: str = "both", threshold: float = 0.7):
     """Check alpha correlation against production alphas, self alphas, or both.
 
     Args:
@@ -27,9 +25,6 @@ async def check_correlation(alpha_id: str, correlation_type: str = "both", thres
 
 
 @mcp.tool()
-async def get_submission_check(alpha_id: str) -> Dict[str, Any]:
+async def get_submission_check(alpha_id: str):
     """Comprehensive pre-submission check."""
-    try:
-        return await brain_client.get_submission_check(alpha_id)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_submission_check(alpha_id))

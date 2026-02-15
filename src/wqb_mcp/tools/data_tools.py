@@ -14,7 +14,7 @@ async def get_datasets(
     universe: str = "TOP3000",
     theme: str = "ALL",
     search: Optional[str] = None,
-) -> Dict[str, Any]:
+):
     """
     Get available datasets for research.
 
@@ -30,10 +30,7 @@ async def get_datasets(
     Returns:
         Available datasets
     """
-    try:
-        return await brain_client.get_datasets(instrument_type, region, delay, universe, theme, search)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_datasets(instrument_type, region, delay, universe, theme, search))
 
 
 @mcp.tool()
@@ -46,7 +43,7 @@ async def get_datafields(
     dataset_id: Optional[str] = None,
     data_type: str = "",
     search: Optional[str] = None,
-) -> Dict[str, Any]:
+):
     """
     Get available data fields for alpha construction.
 
@@ -65,16 +62,10 @@ async def get_datafields(
     Returns:
         Available data fields
     """
-    try:
-        return await brain_client.get_datafields(instrument_type, region, delay, universe, theme, dataset_id, data_type, search)
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
+    return str(await brain_client.get_datafields(instrument_type, region, delay, universe, theme, dataset_id, data_type, search))
 
 
 @mcp.tool()
-async def expand_nested_data(data: List[Dict[str, Any]], preserve_original: bool = True) -> List[Dict[str, Any]]:
+async def expand_nested_data(data: List[Dict[str, Any]], preserve_original: bool = True):
     """Flatten complex nested data structures into tabular format."""
-    try:
-        return await brain_client.expand_nested_data(data, preserve_original)
-    except Exception as e:
-        return [{"error": f"An unexpected error occurred: {str(e)}"}]
+    return str(await brain_client.expand_nested_data(data, preserve_original))

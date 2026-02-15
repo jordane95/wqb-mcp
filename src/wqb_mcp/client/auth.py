@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 from ..config import load_credentials
+from .common import parse_json_or_error
 
 
 class AuthError(Exception):
@@ -91,7 +92,7 @@ class AuthMixin:
                 self.log("No JWT token found in session", "WARNING")
             # Store credentials only after successful authentication.
             self.auth_credentials = {'email': email, 'password': password}
-            return AuthResponse.model_validate(response.json())
+            return AuthResponse.model_validate(parse_json_or_error(response, "/authentication"))
 
         if response.status_code == 401:
             www_auth = response.headers.get("WWW-Authenticate")
@@ -157,7 +158,7 @@ class AuthMixin:
                             self.log("JWT token received", "SUCCESS")
                         # Store credentials only after successful authentication.
                         self.auth_credentials = {'email': email, 'password': password}
-                        return AuthResponse.model_validate(check_response.json())
+                        return AuthResponse.model_validate(parse_json_or_error(check_response, "/authentication"))
 
                 raise AuthChallengeTimeout("Biometric authentication timed out.")
         finally:
@@ -208,7 +209,7 @@ class AuthMixin:
         try:
             response = self.session.get(f"{self.base_url}/users/self")
             response.raise_for_status()
-            return response.json()
+            return parse_json_or_error(response, "/users/self")
         except Exception as e:
             self.log(f"Failed to get auth status: {str(e)}", "ERROR")
             return None
