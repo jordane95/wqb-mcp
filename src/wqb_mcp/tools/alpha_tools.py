@@ -134,22 +134,6 @@ async def get_record_set_data(
 
 
 @mcp.tool()
-async def value_factor_trendScore(start_date: str, end_date: str):
-    """Compute and return the diversity score for REGULAR alphas in a submission-date window.
-    This function calculate the diversity of the users' submission, by checking the diversity, we can have a good understanding on the valuefactor's trend.
-    This MCP tool wraps BrainApiClient.value_factor_trendScore and always uses submission dates (OS).
-
-    Inputs:
-        - start_date: ISO UTC start datetime (e.g. '2025-08-14T00:00:00Z')
-        - end_date: ISO UTC end datetime (e.g. '2025-08-18T23:59:59Z')
-        - p_max: optional integer total number of pyramid categories for normalization
-
-    Returns: compact JSON with diversity_score, N, A, P, P_max, S_A, S_P, S_H, per_pyramid_counts
-    """
-    return str(await brain_client.value_factor_trendScore(start_date=start_date, end_date=end_date))
-
-
-@mcp.tool()
 async def performance_comparison(alpha_id: str, team_id: Optional[str] = None,
                                  competition: Optional[str] = None):
     """Get performance comparison data for an alpha."""

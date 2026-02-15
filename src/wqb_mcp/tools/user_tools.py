@@ -21,17 +21,6 @@ async def get_user_profile(user_id: str = "self"):
 
 
 @mcp.tool()
-async def get_documentations():
-    """
-    Get available documentations and learning materials.
-
-    Returns:
-        List of documentations
-    """
-    return str(await brain_client.get_documentations())
-
-
-@mcp.tool()
 async def get_messages(limit: Optional[int] = None, offset: int = 0):
     """
     Get messages for the current user with optional pagination.
@@ -66,9 +55,9 @@ async def get_pyramid_alphas(start_date: Optional[str] = None,
 
 
 @mcp.tool()
-async def get_documentation_page(page_id: str):
-    """Retrieve detailed content of a specific documentation page/article."""
-    return str(await brain_client.get_documentation_page(page_id))
+async def value_factor_trendScore(start_date: str, end_date: str):
+    """Compute and return the diversity score for REGULAR alphas in a submission-date window."""
+    return str(await brain_client.value_factor_trendScore(start_date=start_date, end_date=end_date))
 
 
 @mcp.tool()

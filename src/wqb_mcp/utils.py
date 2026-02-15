@@ -39,3 +39,19 @@ def save_flat_csv(rows: List[Dict[str, Any]], path: Path) -> int:
     df = pd.DataFrame(rows)
     df.to_csv(path, index=False)
     return len(df.columns)
+
+
+def dataframe_markdown_preview(
+    rows: List[Dict[str, Any]],
+    preferred_cols: List[str],
+    max_rows: int = 5,
+    fallback_cols: int = 3,
+) -> str:
+    """Render a markdown table preview from row dicts."""
+    if not rows:
+        return "(no rows)"
+    df = pd.DataFrame(rows).head(max_rows)
+    preview_cols = [col for col in preferred_cols if col in df.columns]
+    if not preview_cols:
+        preview_cols = df.columns.tolist()[:fallback_cols]
+    return df[preview_cols].to_markdown(index=False)

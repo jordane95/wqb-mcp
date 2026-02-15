@@ -264,3 +264,51 @@ Legend: `+` present, `-` not present.
   ]
 }
 ```
+
+## Computed Function: `value_factor_trendScore(start_date, end_date)`
+
+This is a computed alpha-related function built from multiple API calls:
+- `GET https://api.worldquantbrain.com/users/self/alphas` with `stage=OS` and submission date filters
+- `GET https://api.worldquantbrain.com/alphas/{alpha_id}` for each regular alpha
+- `GET https://api.worldquantbrain.com/users/self/activities/pyramid-multipliers` for `P_max`
+
+Input:
+
+```json
+{
+  "start_date": "2025-08-14T00:00:00Z",
+  "end_date": "2025-08-18T23:59:59Z"
+}
+```
+
+Output contract:
+
+```json
+{
+  "diversity_score": 0.0123,
+  "N": 40,
+  "A": 10,
+  "P": 5,
+  "P_max": 12,
+  "S_A": 0.25,
+  "S_P": 0.4167,
+  "S_H": 0.1184,
+  "per_pyramid_counts": {
+    "Value": 12,
+    "Quality": 8,
+    "Sentiment": 6,
+    "Momentum": 9,
+    "Volatility": 5
+  }
+}
+```
+
+Field meanings:
+- `N`: total regular alphas in submission-date window.
+- `A`: atom-like regular alphas.
+- `P`: number of pyramids covered in sample.
+- `P_max`: normalization denominator from pyramid multipliers (fallback `max(P, 1)`).
+- `S_A`: atom ratio = `A / N` (0 if `N == 0`).
+- `S_P`: pyramid coverage ratio = `P / P_max`.
+- `S_H`: normalized entropy over `per_pyramid_counts` (0 when `P <= 1`).
+- `diversity_score`: `S_A * S_P * S_H`.

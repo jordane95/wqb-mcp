@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 from ..config import load_credentials
-from .common import parse_json_or_error
+from ..utils import parse_json_or_error
 
 
 class AuthError(Exception):

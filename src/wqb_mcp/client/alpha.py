@@ -322,6 +322,37 @@ class AlphaDetailsResponse(BaseModel):
     team: Optional[Dict[str, Any]] = None
     osmosisPoints: Optional[float] = None
 
+    def is_atom(self) -> bool:
+        """Detect atom-like alphas from classifications/tags."""
+        for c in self.classifications or []:
+            cid = (c.id or c.name or "")
+            if isinstance(cid, str) and "SINGLE_DATA_SET" in cid:
+                return True
+
+        for t in self.tags or []:
+            if isinstance(t, str) and t.strip().lower() == "atom":
+                return True
+
+        for c in self.classifications or []:
+            cid = (c.id or c.name or "")
+            if isinstance(cid, str) and "ATOM" in cid.upper():
+                return True
+        return False
+
+    def pyramid_names(self) -> List[str]:
+        """Extract pyramid names from either pyramids or pyramidThemes."""
+        names: List[str] = []
+        for p in self.pyramids or []:
+            if p.name:
+                names.append(p.name)
+        if names:
+            return names
+        if self.pyramidThemes and self.pyramidThemes.pyramids:
+            for p in self.pyramidThemes.pyramids:
+                if p.name:
+                    names.append(p.name)
+        return names
+
     def __str__(self) -> str:
         region = self.settings.region.value if self.settings and self.settings.region else "-"
         lines = [

@@ -10,11 +10,10 @@ from .alpha import AlphaMixin
 from .alpha_recordsets import AlphaRecordsetsMixin
 from .correlation import CorrelationMixin
 from .data import DataMixin
-from .diversity import DiversityMixin
 from .community import CommunityMixin
 from .user import UserMixin
 from .operators import OperatorsMixin
-from .platform_config import PlatformConfigMixin
+from .simulation_settings import SimulationSettingsMixin
 
 
 class BrainApiClient(
@@ -24,11 +23,10 @@ class BrainApiClient(
     AlphaMixin,
     CorrelationMixin,
     DataMixin,
-    DiversityMixin,
     CommunityMixin,
     UserMixin,
     OperatorsMixin,
-    PlatformConfigMixin,
+    SimulationSettingsMixin,
 ):
     """WorldQuant BRAIN API client with comprehensive functionality."""
 

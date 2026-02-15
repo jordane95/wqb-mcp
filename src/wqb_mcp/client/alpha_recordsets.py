@@ -7,7 +7,7 @@ from typing import Any, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
-from .common import parse_json_or_error
+from ..utils import parse_json_or_error
 
 
 class RecordSetName(str, Enum):

@@ -47,3 +47,15 @@ async def get_competition_details(competition_id: str):
 async def get_competition_agreement(competition_id: str):
     """Get the rules, terms, and agreement for a specific competition."""
     return str(await brain_client.get_competition_agreement(competition_id))
+
+
+@mcp.tool()
+async def get_documentations():
+    """Get available documentations and learning materials."""
+    return str(await brain_client.get_documentations())
+
+
+@mcp.tool()
+async def get_documentation_page(page_id: str):
+    """Retrieve detailed content of a specific documentation page/article."""
+    return str(await brain_client.get_documentation_page(page_id))

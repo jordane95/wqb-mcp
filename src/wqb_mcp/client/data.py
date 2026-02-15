@@ -3,22 +3,9 @@
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-import pandas as pd
 from pydantic import BaseModel, Field
 
-from ..utils import parse_json_or_error
-
-
-def _rows_preview(items: List[BaseModel], preferred_cols: List[str]) -> str:
-    dumped_rows = [item.model_dump(mode="json", exclude_none=True) for item in items[:5]]
-    if not dumped_rows:
-        return "(no rows)"
-    df = pd.DataFrame(dumped_rows).head(5)
-    preview_cols = [col for col in preferred_cols if col in df.columns]
-    if not preview_cols:
-        preview_cols = df.columns.tolist()[:3]
-    df = df[preview_cols]
-    return df.to_markdown(index=False)
+from ..utils import dataframe_markdown_preview, parse_json_or_error
 
 
 class DataCategoryRef(BaseModel):
@@ -57,7 +44,11 @@ class DataDatasetsResponse(BaseModel):
     results: List[DataDatasetItem] = Field(default_factory=list)
 
     def __str__(self) -> str:
-        return _rows_preview(self.results, ["id", "name", "description"])
+        return dataframe_markdown_preview(
+            rows=[item.model_dump(mode="json", exclude_none=True) for item in self.results],
+            preferred_cols=["id", "name", "description"],
+            max_rows=5,
+        )
 
 
 class DataFieldType(str, Enum):
@@ -94,7 +85,11 @@ class DataFieldsResponse(BaseModel):
     results: List[DataFieldItem] = Field(default_factory=list)
 
     def __str__(self) -> str:
-        return _rows_preview(self.results, ["id", "type", "description"])
+        return dataframe_markdown_preview(
+            rows=[item.model_dump(mode="json", exclude_none=True) for item in self.results],
+            preferred_cols=["id", "type", "description"],
+            max_rows=5,
+        )
 
 
 class DataSetsQuery(BaseModel):
