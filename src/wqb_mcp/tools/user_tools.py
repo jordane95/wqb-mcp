@@ -61,7 +61,7 @@ async def value_factor_trendScore(start_date: str, end_date: str):
 
 
 @mcp.tool()
-async def get_daily_and_quarterly_payment(email: str = "", password: str = ""):
+async def get_daily_and_quarterly_payment(email: Optional[str] = None, password: Optional[str] = None):
     """
     Get daily and quarterly payment information from WorldQuant BRAIN platform.
 
@@ -75,33 +75,4 @@ async def get_daily_and_quarterly_payment(email: str = "", password: str = ""):
     Returns:
         Dictionary containing base payment and other payment data with summaries and detailed records
     """
-    from ..config import load_credentials
-
-    stored_email, stored_password = load_credentials()
-    email = email or stored_email
-    password = password or stored_password
-    if not email or not password:
-        raise ValueError("Authentication credentials not provided or found in config.")
-
-    await brain_client.authenticate(email, password)
-
-    # Get base payments
-    try:
-        base_response = brain_client.session.get(f"{brain_client.base_url}/users/self/activities/base-payment")
-        base_response.raise_for_status()
-        base_payments = base_response.json()
-    except:
-        base_payments = "no data"
-
-    try:
-        # Get other payments
-        other_response = brain_client.session.get(f"{brain_client.base_url}/users/self/activities/other-payment")
-        other_response.raise_for_status()
-        other_payments = other_response.json()
-    except:
-        other_payments = "no data"
-    result = {
-        "base_payments": base_payments,
-        "other_payments": other_payments
-    }
-    return str(result)
+    return str(await brain_client.get_daily_and_quarterly_payment(email=email, password=password))

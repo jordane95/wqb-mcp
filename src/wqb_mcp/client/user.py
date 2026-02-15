@@ -226,6 +226,62 @@ class PyramidAlphasResponse(BaseModel):
         return f"pyramid-alphas: rows={len(self.pyramids)} | total_alpha_count={total} | non_zero_rows={non_zero}"
 
 
+class PaymentWindowValue(BaseModel):
+    start: str
+    end: str
+    value: float
+
+
+class PaymentRecordSetProperty(BaseModel):
+    name: str
+    title: str
+    type: str
+
+
+class PaymentRecordSetSchema(BaseModel):
+    name: str
+    title: str
+    properties: List[PaymentRecordSetProperty] = Field(default_factory=list)
+
+
+class PaymentRecords(BaseModel):
+    schema: PaymentRecordSetSchema
+    records: List[List[Any]] = Field(default_factory=list)
+
+
+class BasePaymentsPayload(BaseModel):
+    yesterday: PaymentWindowValue
+    current: PaymentWindowValue
+    previous: PaymentWindowValue
+    ytd: PaymentWindowValue
+    total: PaymentWindowValue
+    records: PaymentRecords
+    currency: str
+    type: str
+
+
+class OtherPaymentsPayload(BaseModel):
+    total: PaymentWindowValue
+    records: PaymentRecords
+    currency: str
+    type: str
+
+
+class DailyAndQuarterlyPaymentResponse(BaseModel):
+    base_payments: BasePaymentsPayload
+    other_payments: OtherPaymentsPayload
+
+    def __str__(self) -> str:
+        base_rows = len(self.base_payments.records.records)
+        other_rows = len(self.other_payments.records.records)
+        return (
+            f"payments: base_total={self.base_payments.total.value} {self.base_payments.currency} "
+            f"(rows={base_rows}) | "
+            f"other_total={self.other_payments.total.value} {self.other_payments.currency} "
+            f"(rows={other_rows})"
+        )
+
+
 class UserMixin:
     """Handles profile, messages, activities, pyramids, docs, payments, forum delegation."""
 
@@ -464,3 +520,34 @@ class UserMixin:
         response = self.session.get(f"{self.base_url}{path}", params=params)
         response.raise_for_status()
         return PyramidAlphasResponse.model_validate(parse_json_or_error(response, path))
+
+    async def get_daily_and_quarterly_payment(
+        self,
+        email: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> DailyAndQuarterlyPaymentResponse:
+        """Get daily and quarterly payment information for the authenticated user."""
+        from ..config import load_credentials
+
+        stored_email, stored_password = load_credentials()
+        email = email or stored_email
+        password = password or stored_password
+        if email and password:
+            await self.authenticate(email, password)
+        else:
+            await self.ensure_authenticated()
+
+        base_path = "/users/self/activities/base-payment"
+        base_response = self.session.get(f"{self.base_url}{base_path}")
+        base_response.raise_for_status()
+        base_payments = parse_json_or_error(base_response, base_path)
+
+        other_path = "/users/self/activities/other-payment"
+        other_response = self.session.get(f"{self.base_url}{other_path}")
+        other_response.raise_for_status()
+        other_payments = parse_json_or_error(other_response, other_path)
+
+        return DailyAndQuarterlyPaymentResponse(
+            base_payments=base_payments,
+            other_payments=other_payments,
+        )

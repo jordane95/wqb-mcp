@@ -82,6 +82,16 @@ async def main() -> None:
     r1 = brain_client.session.get(p1, params=pyramid_params)
     out["endpoints"]["pyramid_alphas"] = _record("GET", p1, r1, params=pyramid_params)
 
+    # /users/self/activities/base-payment
+    base_payment_url = f"{base}/users/self/activities/base-payment"
+    base_payment_resp = brain_client.session.get(base_payment_url)
+    out["endpoints"]["base_payment"] = _record("GET", base_payment_url, base_payment_resp)
+
+    # /users/self/activities/other-payment
+    other_payment_url = f"{base}/users/self/activities/other-payment"
+    other_payment_resp = brain_client.session.get(other_payment_url)
+    out["endpoints"]["other_payment"] = _record("GET", other_payment_url, other_payment_resp)
+
     output = Path("assets/logs/user_raw_probe.json")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(out, indent=2), encoding="utf-8")
