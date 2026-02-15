@@ -22,7 +22,7 @@ class EventItem(BaseModel):
     timezone: Optional[str] = None
     language: Optional[str] = None
     description: Optional[str] = None
-    register: Optional[str] = None
+    register_url: Optional[str] = Field(None, alias="register")
     venue: Optional[str] = None
     city: Optional[str] = None
     country: Optional[str] = None

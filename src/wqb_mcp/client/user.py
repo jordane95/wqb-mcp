@@ -245,7 +245,7 @@ class PaymentRecordSetSchema(BaseModel):
 
 
 class PaymentRecords(BaseModel):
-    schema: PaymentRecordSetSchema
+    record_schema: PaymentRecordSetSchema = Field(alias="schema")
     records: List[List[Any]] = Field(default_factory=list)
 
 
