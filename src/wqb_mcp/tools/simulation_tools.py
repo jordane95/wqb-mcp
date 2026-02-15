@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from . import mcp
 from ..client import brain_client
-from ..models import SimulationData, SimulationSettings
+from ..client.simulation import SimulationData, SimulationSettings
 
 
 @mcp.tool()
