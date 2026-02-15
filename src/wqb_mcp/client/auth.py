@@ -1,90 +1,126 @@
 """Authentication mixin for BrainApiClient."""
 
+import asyncio
 import base64
 import sys
-import time
-from typing import Any, Dict
+from typing import List, Optional
 
+from pydantic import BaseModel
 from ..config import load_credentials
+
+
+class AuthError(Exception):
+    """Base authentication error."""
+
+
+class AuthInvalidCredentials(AuthError):
+    """Raised when login credentials are invalid."""
+
+
+class AuthChallengeRequired(AuthError):
+    """Raised when biometric challenge metadata is incomplete."""
+
+
+class AuthChallengeTimeout(AuthError):
+    """Raised when biometric challenge times out."""
+
+
+class AuthTransportError(AuthError):
+    """Raised when network/transport errors occur during auth."""
+
+
+class AuthRateLimited(AuthError):
+    """Raised when authentication requests are rate limited."""
+
+
+class AuthResponseParseError(AuthError):
+    """Raised when auth response cannot be parsed/validated."""
+
+
+class AuthUser(BaseModel):
+    id: str
+
+
+class AuthToken(BaseModel):
+    expiry: float
+
+
+class AuthResponse(BaseModel):
+    user: AuthUser
+    token: AuthToken
+    permissions: List[str] = []
+
+    @property
+    def status(self) -> str:
+        # Compatibility shim for existing call sites expecting auth_result.status
+        return "authenticated"
+
+    def __str__(self) -> str:
+        return (
+            f"{self.status} | user_id={self.user.id} | "
+            f"token_expiry={self.token.expiry} | permissions={len(self.permissions)}"
+        )
 
 
 class AuthMixin:
     """Handles authenticate, biometric auth, and ensure_authenticated."""
 
-    async def authenticate(self, email: str, password: str) -> Dict[str, Any]:
+    async def authenticate(self, email: str, password: str) -> AuthResponse:
         """Authenticate with WorldQuant BRAIN platform with biometric support."""
         self.log("Starting Authentication process...", "INFO")
 
+        # Clear any existing session data
+        self.session.cookies.clear()
+        self.session.auth = None
+
+        credentials = f"{email}:{password}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        headers = {'Authorization': f'Basic {encoded_credentials}'}
+
         try:
-            # Store credentials for potential re-authentication
-            self.auth_credentials = {'email': email, 'password': password}
-
-            # Clear any existing session data
-            self.session.cookies.clear()
-            self.session.auth = None
-
-            # Create Basic Authentication header (base64 encoded credentials)
-            credentials = f"{email}:{password}"
-            encoded_credentials = base64.b64encode(credentials.encode()).decode()
-
-            # Send POST request with Basic Authentication header
-            headers = {
-                'Authorization': f'Basic {encoded_credentials}'
-            }
-
             response = self.session.post('https://api.worldquantbrain.com/authentication', headers=headers)
-
-            # Check for successful authentication (status code 201)
-            if response.status_code == 201:
-                self.log("Authentication successful", "SUCCESS")
-
-                # Check if JWT token was automatically stored by session
-                jwt_token = self.session.cookies.get('t')
-                if jwt_token:
-                    self.log("JWT token automatically stored by session", "SUCCESS")
-                else:
-                    self.log("No JWT token found in session", "WARNING")
-
-                # Return success response
-                return {
-                    'user': {'email': email},
-                    'status': 'authenticated',
-                    'permissions': ['read', 'write'],
-                    'message': 'Authentication successful',
-                    'status_code': response.status_code,
-                    'has_jwt': jwt_token is not None
-                }
-
-            # Check if biometric authentication is required (401 with persona)
-            elif response.status_code == 401:
-                www_auth = response.headers.get("WWW-Authenticate")
-                location = response.headers.get("Location")
-
-                if www_auth == "persona" and location:
-                    self.log("Biometric authentication required", "INFO")
-
-                    # Handle biometric authentication
-                    from urllib.parse import urljoin
-                    biometric_url = urljoin(response.url, location)
-
-                    return await self._handle_biometric_auth(biometric_url, email)
-                else:
-                    raise Exception("Incorrect email or password")
-            else:
-                raise Exception(f"Authentication failed with status code: {response.status_code}")
-
         except Exception as e:
-            self.log(f"Authentication failed: {str(e)}", "ERROR")
-            raise
+            raise AuthTransportError(f"Authentication request failed: {e}") from e
 
-    async def _handle_biometric_auth(self, biometric_url: str, email: str) -> Dict[str, Any]:
+        if response.status_code == 201:
+            self.log("Authentication successful", "SUCCESS")
+            jwt_token = self.session.cookies.get('t')
+            if jwt_token:
+                self.log("JWT token automatically stored by session", "SUCCESS")
+            else:
+                self.log("No JWT token found in session", "WARNING")
+            # Store credentials only after successful authentication.
+            self.auth_credentials = {'email': email, 'password': password}
+            return AuthResponse.model_validate(response.json())
+
+        if response.status_code == 401:
+            www_auth = response.headers.get("WWW-Authenticate")
+            location = response.headers.get("Location")
+            if www_auth == "persona":
+                if not location:
+                    raise AuthChallengeRequired("Biometric challenge required but Location header is missing.")
+                self.log("Biometric authentication required", "INFO")
+                from urllib.parse import urljoin
+                biometric_url = urljoin(response.url, location)
+                return await self._handle_biometric_auth(biometric_url, email, password)
+            raise AuthInvalidCredentials("Incorrect email or password.")
+
+        if response.status_code == 429:
+            retry_after = response.headers.get("Retry-After")
+            if retry_after:
+                raise AuthRateLimited(f"Authentication rate limited (429). Retry-After: {retry_after}s.")
+            raise AuthRateLimited("Authentication rate limited (429).")
+
+        raise AuthError(f"Authentication failed with status code: {response.status_code}")
+
+    async def _handle_biometric_auth(self, biometric_url: str, email: str, password: str) -> AuthResponse:
         """Handle biometric authentication using browser automation."""
         self.log("Starting biometric authentication...", "INFO")
 
+        browser = None
+        # Import playwright for browser automation
+        from playwright.async_api import async_playwright
         try:
-            # Import playwright for browser automation
-            from playwright.async_api import async_playwright
-
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=False)
                 page = await browser.new_page()
@@ -93,7 +129,6 @@ class AuthMixin:
                 await page.goto(biometric_url)
                 self.log("Browser page loaded successfully", "SUCCESS")
 
-                # Print instructions
                 print("\n" + "="*60, file=sys.stderr)
                 print("BIOMETRIC AUTHENTICATION REQUIRED", file=sys.stderr)
                 print("="*60, file=sys.stderr)
@@ -102,44 +137,35 @@ class AuthMixin:
                 print("The system will automatically check when you're done...", file=sys.stderr)
                 print("="*60, file=sys.stderr)
 
-                # Keep checking until authentication is complete
-                max_attempts = 60  # 5 minutes maximum (60 * 5 seconds)
+                max_attempts = 60
                 attempt = 0
 
                 while attempt < max_attempts:
-                    time.sleep(5)  # Check every 5 seconds
+                    await asyncio.sleep(5)
                     attempt += 1
 
-                    # Check if authentication completed
-                    check_response = self.session.post(biometric_url)
-                    self.log(f"Checking authentication status (attempt {attempt}/{max_attempts}): {check_response.status_code}", "INFO")
+                    try:
+                        check_response = self.session.post(biometric_url)
+                    except Exception as e:
+                        raise AuthTransportError(f"Biometric poll request failed: {e}") from e
 
+                    self.log(f"Checking authentication status (attempt {attempt}/{max_attempts}): {check_response.status_code}", "INFO")
                     if check_response.status_code == 201:
                         self.log("Biometric authentication successful!", "SUCCESS")
-
-                        await browser.close()
-
-                        # Check JWT token
                         jwt_token = self.session.cookies.get('t')
                         if jwt_token:
                             self.log("JWT token received", "SUCCESS")
+                        # Store credentials only after successful authentication.
+                        self.auth_credentials = {'email': email, 'password': password}
+                        return AuthResponse.model_validate(check_response.json())
 
-                        # Return success response
-                        return {
-                            'user': {'email': email},
-                            'status': 'authenticated',
-                            'permissions': ['read', 'write'],
-                            'message': 'Biometric authentication successful',
-                            'status_code': check_response.status_code,
-                            'has_jwt': jwt_token is not None
-                        }
-
-                await browser.close()
-                raise Exception("Biometric authentication timed out")
-
-        except Exception as e:
-            self.log(f"Biometric authentication failed: {str(e)}", "ERROR")
-            raise
+                raise AuthChallengeTimeout("Biometric authentication timed out.")
+        finally:
+            if browser:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
 
     async def is_authenticated(self) -> bool:
         """Check if currently authenticated using JWT token."""
@@ -177,7 +203,7 @@ class AuthMixin:
             self.log("Re-authenticating...", "INFO")
             await self.authenticate(self.auth_credentials['email'], self.auth_credentials['password'])
 
-    async def get_authentication_status(self):
+    async def get_authentication_status(self) -> Optional[dict]:
         """Get current authentication status and user info."""
         try:
             response = self.session.get(f"{self.base_url}/users/self")

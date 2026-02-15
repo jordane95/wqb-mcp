@@ -122,7 +122,7 @@ class ForumScraper:
         
         log("Authenticating with BRAIN platform...", "INFO")
         auth_result = await brain_client.authenticate(email, password)
-        if auth_result.get('status') != 'authenticated':
+        if auth_result.status != "authenticated":
             raise Exception("BRAIN platform authentication failed.")
         log("Successfully authenticated with BRAIN platform.", "SUCCESS")
 
