@@ -10,6 +10,8 @@ from ..utils import parse_json_or_error
 
 
 class SimulationSettings(BaseModel):
+    model_config = {"extra": "forbid"}
+
     instrumentType: str = "EQUITY"
     region: str = "USA"
     universe: str = "TOP3000"

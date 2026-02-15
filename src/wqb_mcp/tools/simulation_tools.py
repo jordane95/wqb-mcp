@@ -186,14 +186,24 @@ async def create_multi_simulation(
         "max_trade": "maxTrade",
         "component_activation": "componentActivation",
     }
-    overrides = settings or [{} for _ in alpha_expressions]
+    if settings is None:
+        overrides = [{} for _ in alpha_expressions]
+    else:
+        overrides = settings
     if len(overrides) != len(alpha_expressions):
         raise ValueError("settings must have the same length as alpha_expressions")
+    allowed_setting_keys = set(SimulationSettings.model_fields.keys())
+    allowed_input_keys = allowed_setting_keys | set(settings_key_map.keys())
 
     simulation_items: List[SimulationData] = []
     for idx, (expr, override) in enumerate(zip(alpha_expressions, overrides), start=1):
         if not isinstance(override, dict):
             raise ValueError(f"settings[{idx}] must be an object")
+        unknown_keys = sorted(k for k in override.keys() if k not in allowed_input_keys)
+        if unknown_keys:
+            raise ValueError(
+                f"settings[{idx}] has unsupported keys: {', '.join(unknown_keys)}"
+            )
         normalized = {settings_key_map.get(k, k): v for k, v in override.items()}
         merged = common_settings.model_dump()
         merged.update(normalized)
