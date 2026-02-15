@@ -3,6 +3,11 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+
+# Local generated artifacts
+assets/
+
+
 # C extensions
 *.so
 
