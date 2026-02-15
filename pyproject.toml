@@ -27,6 +27,7 @@ dependencies = [
     "playwright",
     "beautifulsoup4",
     "pandas",
+    "tabulate",
     "requests",
     "pydantic",
     "keyring",

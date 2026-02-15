@@ -1,83 +1,196 @@
 """Data mixin for BrainApiClient."""
 
-from typing import Any, Dict, List, Optional
+from enum import Enum
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import pandas as pd
-from .common import parse_json_or_error
+from pydantic import BaseModel, Field
+
+from ..utils import parse_json_or_error
+
+
+def _rows_preview(items: List[BaseModel], preferred_cols: List[str]) -> str:
+    dumped_rows = [item.model_dump(mode="json", exclude_none=True) for item in items[:5]]
+    if not dumped_rows:
+        return "(no rows)"
+    df = pd.DataFrame(dumped_rows).head(5)
+    preview_cols = [col for col in preferred_cols if col in df.columns]
+    if not preview_cols:
+        preview_cols = df.columns.tolist()[:3]
+    df = df[preview_cols]
+    return df.to_markdown(index=False)
+
+
+class DataCategoryRef(BaseModel):
+    id: str
+    name: str
+
+
+class DataResearchPaper(BaseModel):
+    type: str
+    title: str
+    url: str
+
+
+class DataDatasetItem(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    category: Optional[DataCategoryRef] = None
+    subcategory: Optional[DataCategoryRef] = None
+    region: Optional[str] = None
+    delay: Optional[int] = None
+    universe: Optional[str] = None
+    dateCoverage: Optional[float] = None
+    coverage: Optional[float] = None
+    valueScore: Optional[float] = None
+    userCount: Optional[int] = None
+    alphaCount: Optional[int] = None
+    fieldCount: Optional[int] = None
+    pyramidMultiplier: Optional[float] = None
+    themes: List[str] = Field(default_factory=list)
+    researchPapers: List[DataResearchPaper] = Field(default_factory=list)
+
+
+class DataDatasetsResponse(BaseModel):
+    count: int
+    results: List[DataDatasetItem] = Field(default_factory=list)
+
+    def __str__(self) -> str:
+        return _rows_preview(self.results, ["id", "name", "description"])
+
+
+class DataFieldType(str, Enum):
+    MATRIX = "MATRIX"
+    VECTOR = "VECTOR"
+    GROUP = "GROUP"
+
+
+class DataIdNameRef(BaseModel):
+    id: str
+    name: str
+
+
+class DataFieldItem(BaseModel):
+    id: str
+    description: Optional[str] = None
+    dataset: Optional[DataIdNameRef] = None
+    category: Optional[DataIdNameRef] = None
+    subcategory: Optional[DataIdNameRef] = None
+    region: Optional[str] = None
+    delay: Optional[int] = None
+    universe: Optional[str] = None
+    type: Optional[DataFieldType] = None
+    dateCoverage: Optional[float] = None
+    coverage: Optional[float] = None
+    userCount: Optional[int] = None
+    alphaCount: Optional[int] = None
+    pyramidMultiplier: Optional[float] = None
+    themes: List[str] = Field(default_factory=list)
+
+
+class DataFieldsResponse(BaseModel):
+    count: int
+    results: List[DataFieldItem] = Field(default_factory=list)
+
+    def __str__(self) -> str:
+        return _rows_preview(self.results, ["id", "type", "description"])
+
+
+class DataSetsQuery(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    instrument_type: str = "EQUITY"
+    region: str = "USA"
+    delay: Literal[0, 1] = 1
+    universe: str = "TOP3000"
+    theme: Literal["false"] = "false"
+    search: Optional[str] = None
+
+    def to_params(self) -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "instrumentType": self.instrument_type,
+            "region": self.region,
+            "delay": self.delay,
+            "universe": self.universe,
+            "theme": self.theme,
+        }
+        if self.search:
+            params["search"] = self.search
+        return params
+
+
+class DataFieldsQuery(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    instrument_type: str = "EQUITY"
+    region: str = "USA"
+    delay: Literal[0, 1] = 1
+    universe: str = "TOP3000"
+    theme: Literal["false"] = "false"
+    dataset_id: Optional[str] = None
+    data_type: Union[DataFieldType, Literal["ALL"]] = "ALL"
+    search: Optional[str] = None
+    limit: int = 50
+    offset: int = 0
+
+    def to_params(self) -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "instrumentType": self.instrument_type,
+            "region": self.region,
+            "delay": self.delay,
+            "universe": self.universe,
+            "limit": str(self.limit),
+            "offset": str(self.offset),
+        }
+        if self.data_type != "ALL":
+            params["type"] = self.data_type.value if isinstance(self.data_type, Enum) else self.data_type
+        if self.dataset_id:
+            params["dataset.id"] = self.dataset_id
+        if self.search:
+            params["search"] = self.search
+        return params
 
 
 class DataMixin:
-    """Handles datasets, datafields, expand_nested_data."""
+    """Handles datasets and datafields."""
 
     async def get_datasets(self, instrument_type: str = "EQUITY", region: str = "USA",
-                          delay: int = 1, universe: str = "TOP3000", theme: str = "ALL", search: Optional[str] = None) -> Dict[str, Any]:
+                          delay: int = 1, universe: str = "TOP3000", theme: str = "false", search: Optional[str] = None) -> DataDatasetsResponse:
         """Get available datasets."""
         await self.ensure_authenticated()
 
-        try:
-            params = {
-                'instrumentType': instrument_type,
-                'region': region,
-                'delay': delay,
-                'universe': universe,
-                'theme': theme
-            }
+        query = DataSetsQuery(
+            instrument_type=instrument_type,
+            region=region,
+            delay=delay,
+            universe=universe,
+            theme=theme,
+            search=search,
+        )
 
-            if search:
-                params['search'] = search
-
-            response = self.session.get(f"{self.base_url}/data-sets", params=params)
-            response.raise_for_status()
-            response_json = parse_json_or_error(response, "/data-sets")
-            response_json['extraNote'] = "if your returned result is 0, you may want to check your parameter by using get_platform_setting_options tool to got correct parameter"
-            return response_json
-        except Exception as e:
-            self.log(f"Failed to get datasets: {str(e)}", "ERROR")
-            raise
+        response = self.session.get(f"{self.base_url}/data-sets", params=query.to_params())
+        response.raise_for_status()
+        return DataDatasetsResponse.model_validate(parse_json_or_error(response, "/data-sets"))
 
     async def get_datafields(self, instrument_type: str = "EQUITY", region: str = "USA",
                             delay: int = 1, universe: str = "TOP3000", theme: str = "false",
-                            dataset_id: Optional[str] = None, data_type: str = "",
-                            search: Optional[str] = None) -> Dict[str, Any]:
+                            dataset_id: Optional[str] = None, data_type: str = "ALL",
+                            search: Optional[str] = None) -> DataFieldsResponse:
         """Get available data fields."""
         await self.ensure_authenticated()
 
-        try:
-            params = {
-                'instrumentType': instrument_type,
-                'region': region,
-                'delay': delay,
-                'universe': universe,
-                'limit': '50',
-                'offset': '0'
-            }
+        query = DataFieldsQuery(
+            instrument_type=instrument_type,
+            region=region,
+            delay=delay,
+            universe=universe,
+            theme=theme,
+            dataset_id=dataset_id,
+            data_type=data_type,
+            search=search,
+        )
 
-            if data_type != 'ALL':
-                params['type'] = data_type
-
-            if dataset_id:
-                params['dataset.id'] = dataset_id
-            if search:
-                params['search'] = search
-
-            response = self.session.get(f"{self.base_url}/data-fields", params=params)
-            response.raise_for_status()
-            response_json = parse_json_or_error(response, "/data-fields")
-            response_json['extraNote'] = "if your returned result is 0, you may want to check your parameter by using get_platform_setting_options tool to got correct parameter"
-            return response_json
-        except Exception as e:
-            self.log(f"Failed to get datafields: {str(e)}", "ERROR")
-            raise
-
-    async def expand_nested_data(self, data: List[Dict[str, Any]], preserve_original: bool = True) -> List[Dict[str, Any]]:
-        """Flatten complex nested data structures into tabular format."""
-        try:
-            df = pd.json_normalize(data, sep='_')
-            if preserve_original:
-                original_df = pd.DataFrame(data)
-                df = pd.concat([original_df, df], axis=1)
-                df = df.loc[:,~df.columns.duplicated()]
-            return df.to_dict(orient='records')
-        except Exception as e:
-            self.log(f"Failed to expand nested data: {str(e)}", "ERROR")
-            raise
+        response = self.session.get(f"{self.base_url}/data-fields", params=query.to_params())
+        response.raise_for_status()
+        return DataFieldsResponse.model_validate(parse_json_or_error(response, "/data-fields"))

@@ -1,9 +1,10 @@
 """Data MCP tools."""
 
-from typing import Any, Dict, List, Optional
-
+from pathlib import Path
+from typing import Optional
 from . import mcp
 from ..client import brain_client
+from ..utils import expand_nested_data, save_flat_csv
 
 
 @mcp.tool()
@@ -12,8 +13,9 @@ async def get_datasets(
     region: str = "USA",
     delay: int = 1,
     universe: str = "TOP3000",
-    theme: str = "ALL",
+    theme: str = "false",
     search: Optional[str] = None,
+    output_path: Optional[str] = None,
 ):
     """
     Get available datasets for research.
@@ -28,9 +30,24 @@ async def get_datasets(
         theme: Theme filter
 
     Returns:
-        Available datasets
+        Markdown summary with saved CSV path
     """
-    return str(await brain_client.get_datasets(instrument_type, region, delay, universe, theme, search))
+    response = await brain_client.get_datasets(instrument_type, region, delay, universe, theme, search)
+    rows = expand_nested_data(response.model_dump().get("results", []), preserve_original=True)
+    target = (
+        Path(output_path)
+        if output_path
+        else Path("assets") / "data" / f"datasets_{region.lower()}_{universe.lower()}.csv"
+    )
+    col_count = save_flat_csv(rows, target)
+    return (
+        "Saved datasets CSV\n"
+        f"- path: `{target}`\n"
+        f"- rows: `{len(rows)}`\n"
+        f"- columns: `{col_count}`\n"
+        f"- total_count: `{response.count}`\n"
+        f"- preview:\n```text\n{response}\n```"
+    )
 
 
 @mcp.tool()
@@ -41,8 +58,9 @@ async def get_datafields(
     universe: str = "TOP3000",
     theme: str = "false",
     dataset_id: Optional[str] = None,
-    data_type: str = "",
+    data_type: str = "ALL",
     search: Optional[str] = None,
+    output_path: Optional[str] = None,
 ):
     """
     Get available data fields for alpha construction.
@@ -60,12 +78,23 @@ async def get_datafields(
         search: Search term to filter fields
 
     Returns:
-        Available data fields
+        Markdown summary with saved CSV path
     """
-    return str(await brain_client.get_datafields(instrument_type, region, delay, universe, theme, dataset_id, data_type, search))
-
-
-@mcp.tool()
-async def expand_nested_data(data: List[Dict[str, Any]], preserve_original: bool = True):
-    """Flatten complex nested data structures into tabular format."""
-    return str(await brain_client.expand_nested_data(data, preserve_original))
+    response = await brain_client.get_datafields(
+        instrument_type, region, delay, universe, theme, dataset_id, data_type, search
+    )
+    rows = expand_nested_data(response.model_dump().get("results", []), preserve_original=True)
+    target = (
+        Path(output_path)
+        if output_path
+        else Path("assets") / "data" / f"datafields_{region.lower()}_{universe.lower()}_{data_type.lower()}.csv"
+    )
+    col_count = save_flat_csv(rows, target)
+    return (
+        "Saved datafields CSV\n"
+        f"- path: `{target}`\n"
+        f"- rows: `{len(rows)}`\n"
+        f"- columns: `{col_count}`\n"
+        f"- total_count: `{response.count}`\n"
+        f"- preview:\n```text\n{response}\n```"
+    )
