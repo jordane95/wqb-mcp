@@ -1,52 +1,50 @@
 """Operators mixin for BrainApiClient."""
 
-from typing import Any, Dict
-from .common import parse_json_or_error
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
+
+from ..utils import dataframe_markdown_preview, parse_json_or_error
+
+
+class OperatorItem(BaseModel):
+    name: str
+    category: str
+    scope: List[str] = Field(default_factory=list)
+    definition: str
+    description: str
+    documentation: Optional[str] = None
+    level: Optional[str] = None
+
+
+class OperatorsResponse(BaseModel):
+    operators: List[OperatorItem] = Field(default_factory=list)
+    count: int
+
+    def __str__(self) -> str:
+        rows = [op.model_dump(mode="json", exclude_none=True) for op in self.operators]
+        table = dataframe_markdown_preview(
+            rows=rows,
+            preferred_cols=["name", "definition", "description"],
+            max_rows=10,
+        )
+        return (
+            "Operators summary\n"
+            f"- count: `{self.count}`\n"
+            f"- preview_rows: `{min(len(rows), 10)}`\n"
+            f"- preview:\n{table}"
+        )
 
 
 class OperatorsMixin:
-    """Handles get_operators and run_selection."""
+    """Handles operator metadata retrieval."""
 
-    async def get_operators(self) -> Dict[str, Any]:
+    async def get_operators(self) -> OperatorsResponse:
         """Get available operators for alpha creation."""
         await self.ensure_authenticated()
-        try:
-            response = self.session.get(f"{self.base_url}/operators")
-            response.raise_for_status()
-            operators_data = parse_json_or_error(response, "/operators")
-
-            if isinstance(operators_data, list):
-                return {"operators": operators_data, "count": len(operators_data)}
-            else:
-                return operators_data
-        except Exception as e:
-            self.log(f"Failed to get operators: {str(e)}", "ERROR")
-            raise
-
-    async def run_selection(
-        self,
-        selection: str,
-        instrument_type: str = "EQUITY",
-        region: str = "USA",
-        delay: int = 1,
-        selection_limit: int = 1000,
-        selection_handling: str = "POSITIVE"
-    ) -> Dict[str, Any]:
-        """Run a selection query to filter instruments."""
-        await self.ensure_authenticated()
-        try:
-            selection_data = {
-                "selection": selection,
-                "instrumentType": instrument_type,
-                "region": region,
-                "delay": delay,
-                "selectionLimit": selection_limit,
-                "selectionHandling": selection_handling
-            }
-
-            response = self.session.get(f"{self.base_url}/simulations/super-selection", params=selection_data)
-            response.raise_for_status()
-            return parse_json_or_error(response, "/simulations/super-selection")
-        except Exception as e:
-            self.log(f"Failed to run selection: {str(e)}", "ERROR")
-            raise
+        response = self.session.get(f"{self.base_url}/operators")
+        response.raise_for_status()
+        operators_data = parse_json_or_error(response, "/operators")
+        if isinstance(operators_data, list):
+            operators_data = {"operators": operators_data, "count": len(operators_data)}
+        return OperatorsResponse.model_validate(operators_data)

@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
-from .common import parse_json_or_error
+from ..utils import parse_json_or_error
 
 
 class AlphaRegion(str, Enum):
@@ -194,6 +194,15 @@ class AlphaPerformanceBlock(BaseModel):
     fitness: float
     startDate: Optional[str] = None
 
+    def __str__(self) -> str:
+        return (
+            f"pnl={self.pnl:.4f} bookSize={self.bookSize:.4f} "
+            f"longCount={self.longCount} shortCount={self.shortCount} "
+            f"turnover={self.turnover:.4f} returns={self.returns:.4f} "
+            f"drawdown={self.drawdown:.4f} margin={self.margin:.4f} "
+            f"sharpe={self.sharpe:.4f} fitness={self.fitness:.4f}"
+        )
+
 
 class AlphaIsMetrics(AlphaPerformanceBlock):
     glbAmer: Optional[AlphaPerformanceBlock] = None
@@ -245,6 +254,40 @@ class AlphaOsMetrics(BaseModel):
     preCloseSharpeRatio: Optional[float] = None
     checks: List[AlphaCheck] = Field(default_factory=list)
 
+    def __str__(self) -> str:
+        parts: List[str] = []
+        if self.turnover is not None:
+            parts.append(f"turnover={self.turnover:.4f}")
+        if self.returns is not None:
+            parts.append(f"returns={self.returns:.4f}")
+        if self.drawdown is not None:
+            parts.append(f"drawdown={self.drawdown:.4f}")
+        if self.margin is not None:
+            parts.append(f"margin={self.margin:.4f}")
+        if self.fitness is not None:
+            parts.append(f"fitness={self.fitness:.4f}")
+        if self.sharpe is not None:
+            parts.append(f"sharpe={self.sharpe:.4f}")
+        if self.sharpe60 is not None:
+            parts.append(f"sharpe60={self.sharpe60:.4f}")
+        if self.sharpe125 is not None:
+            parts.append(f"sharpe125={self.sharpe125:.4f}")
+        if self.sharpe250 is not None:
+            parts.append(f"sharpe250={self.sharpe250:.4f}")
+        if self.sharpe500 is not None:
+            parts.append(f"sharpe500={self.sharpe500:.4f}")
+        if self.preCloseSharpe is not None:
+            parts.append(f"preCloseSharpe={self.preCloseSharpe:.4f}")
+        if self.osISSharpeRatio is not None:
+            parts.append(f"osISSharpeRatio={self.osISSharpeRatio:.4f}")
+        if self.preCloseSharpeRatio is not None:
+            parts.append(f"preCloseSharpeRatio={self.preCloseSharpeRatio:.4f}")
+        if self.startDate is not None:
+            parts.append(f"startDate={self.startDate}")
+        if self.checks:
+            parts.append(f"checks={len(self.checks)}")
+        return " ".join(parts) if parts else "(no os metrics)"
+
 
 class AlphaDetailsResponse(BaseModel):
     model_config = {"populate_by_name": True}
@@ -281,10 +324,18 @@ class AlphaDetailsResponse(BaseModel):
 
     def __str__(self) -> str:
         region = self.settings.region.value if self.settings and self.settings.region else "-"
-        return (
-            f"alpha {self.id} | {self.type or 'UNKNOWN'} | "
-            f"region={region} | stage={self.stage or '-'} | status={self.status or '-'}"
-        )
+        lines = [
+            f"alpha id: {self.id}",
+            f"type: {self.type or 'UNKNOWN'}",
+            f"region: {region}",
+            f"stage: {self.stage or '-'}",
+            f"status: {self.status or '-'}",
+        ]
+        if self.is_ is not None:
+            lines.append(f"IS: {self.is_}")
+        if self.os is not None:
+            lines.append(f"OS: {self.os}")
+        return "\n".join(lines)
 
 
 class AlphaMixin:

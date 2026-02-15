@@ -90,6 +90,30 @@ async def create_simulation(
 
 
 @mcp.tool()
+async def wait_for_simulation(location_or_id: str, max_polls: int = 200):
+    """
+    Poll a simulation until completion or error.
+
+    Args:
+        location_or_id: Simulation location URL or simulation id
+        max_polls: Maximum number of polls before stopping
+
+    Returns:
+        Final simulation snapshot with completion metadata
+    """
+    result = await brain_client.wait_for_simulation(location_or_id, max_polls)
+    if not result.done:
+        return str(result)
+
+    alpha_id = result.snapshot.alpha
+    if not alpha_id:
+        return str(result)
+
+    details = await brain_client.get_alpha_details(alpha_id)
+    return str(details)
+
+
+@mcp.tool()
 async def create_multi_simulation(
     alpha_expressions: List[str],
     instrument_type: str = "EQUITY",

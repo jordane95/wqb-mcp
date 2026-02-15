@@ -1,18 +1,34 @@
 """Operators MCP tools."""
 
+from pathlib import Path
+from typing import Optional
+
 from . import mcp
 from ..client import brain_client
+from ..utils import expand_nested_data, save_flat_csv
 
 
 @mcp.tool()
-async def get_operators():
+async def get_operators(output_path: Optional[str] = None):
     """
     Get available operators for alpha creation.
 
     Returns:
         Dictionary containing operators list and count
     """
-    return str(await brain_client.get_operators())
+    response = await brain_client.get_operators()
+    rows = expand_nested_data(
+        [op.model_dump(mode="json", exclude_none=True) for op in response.operators],
+        preserve_original=True,
+    )
+    target = Path(output_path) if output_path else Path("assets") / "operators" / "operators.csv"
+    col_count = save_flat_csv(rows, target)
+    return (
+        f"{response}\n"
+        f"- csv_path: `{target}`\n"
+        f"- csv_rows: `{len(rows)}`\n"
+        f"- csv_columns: `{col_count}`"
+    )
 
 
 @mcp.tool()
