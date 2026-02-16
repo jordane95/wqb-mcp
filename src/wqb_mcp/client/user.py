@@ -54,10 +54,19 @@ class ValueFactorTrendScoreResponse(BaseModel):
     per_pyramid_counts: Dict[str, int] = Field(default_factory=dict)
 
     def __str__(self) -> str:
+        sorted_pyramids = sorted(self.per_pyramid_counts.items(), key=lambda x: -x[1])
+        top5 = sorted_pyramids[:5]
+        pyramids = "\n".join(f"  {name}: {count}" for name, count in top5) or "  (none)"
+        remaining = len(sorted_pyramids) - len(top5)
+        if remaining > 0:
+            pyramids += f"\n  ... and {remaining} more"
         return (
-            f"diversity_score={self.diversity_score:.6f} | "
-            f"N={self.N} A={self.A} P={self.P}/{self.P_max} | "
-            f"S_A={self.S_A:.4f} S_P={self.S_P:.4f} S_H={self.S_H:.4f}"
+            f"diversity score = {self.diversity_score:.6f} (S_A * S_P * S_H)\n"
+            f"N={self.N}(total REGULAR OS alphas) A={self.A}(number of submitted atom alphas) P={self.P}(pyramids covered) P_max={self.P_max}\n"
+            f"S_A = A/N = {self.A}/{self.N} = {self.S_A:.4f} (atom alpha ratio)\n"
+            f"S_P = P/P_max = {self.P}/{self.P_max} = {self.S_P:.4f} (pyramid coverage)\n"
+            f"S_H = {self.S_H:.4f} (entropy of alpha distribution over pyramid)\n"
+            f"pyramids:\n{pyramids}"
         )
 
 
@@ -183,8 +192,11 @@ class UserActivitiesResponse(PaginatedResponseBase):
     results: List[UserActivityItem] = Field(default_factory=list)
 
     def __str__(self) -> str:
-        names = ", ".join(item.name for item in self.results)
-        return f"activities: count={self.count} | {names}"
+        rows = [{"name": item.name, "title": item.title} for item in self.results]
+        table = dataframe_markdown_preview(
+            rows, preferred_cols=["name", "title"], max_rows=len(rows),
+        )
+        return f"activities: count={self.count}\n\n{table}"
 
 
 class PyramidCategory(BaseModel):
@@ -204,10 +216,21 @@ class PyramidMultipliersResponse(BaseModel):
 
     def __str__(self) -> str:
         regions = sorted({item.region for item in self.pyramids})
-        return (
-            f"pyramid-multipliers: rows={len(self.pyramids)} | "
+        rows = [
+            {"id": item.category.id, "category": item.category.name,
+             "region": item.region, "delay": item.delay,
+             "multiplier": item.multiplier}
+            for item in sorted(self.pyramids, key=lambda x: x.multiplier, reverse=True)
+        ]
+        header = (
+            f"pyramid-multipliers: {len(self.pyramids)} categories | "
             f"regions={','.join(regions) if regions else '-'}"
         )
+        table = dataframe_markdown_preview(
+            rows, preferred_cols=["id", "category", "region", "delay", "multiplier"],
+            max_rows=5,
+        )
+        return f"{header}\n\nTop 5 by multiplier:\n{table}"
 
 
 class PyramidAlphaItem(BaseModel):
@@ -225,7 +248,7 @@ class PyramidAlphasResponse(BaseModel):
         non_zero = [item for item in self.pyramids if item.alphaCount > 0]
         rows = [
             {"category": item.category.name, "region": item.region,
-             "delay": item.delay, "alphas": item.alphaCount}
+             "delay": item.delay, "alphaCount": item.alphaCount}
             for item in sorted(non_zero, key=lambda x: x.alphaCount, reverse=True)
         ]
         header = (
@@ -233,7 +256,7 @@ class PyramidAlphasResponse(BaseModel):
             f"total_alphas={total} | with_alphas={len(non_zero)}"
         )
         table = dataframe_markdown_preview(
-            rows, preferred_cols=["category", "region", "delay", "alphas"],
+            rows, preferred_cols=["category", "region", "delay", "alphaCount"],
             max_rows=len(rows),
         )
         return f"{header}\n\n{table}"

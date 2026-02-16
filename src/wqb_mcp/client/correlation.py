@@ -2,7 +2,7 @@
 
 import asyncio
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 from ..utils import parse_json_or_error
@@ -77,6 +77,38 @@ class CorrelationCheckResponse(BaseModel):
         for ct, result in self.checks.items():
             lines.append(f"- {ct.value}: {result}")
         return "\n".join(lines)
+
+class SubmissionCheckResponse(BaseModel):
+    """Comprehensive pre-submission check result."""
+    alpha_id: str
+    alpha_type: str
+    region: str
+    stage: str
+    status: str
+    correlation_checks: CorrelationCheckResponse
+    is_checks_pass: int = 0
+    is_checks_warn: int = 0
+    is_checks_fail: int = 0
+    is_checks_pending: int = 0
+    failed_checks: List[str] = Field(default_factory=list)
+    warning_checks: List[str] = Field(default_factory=list)
+    all_passed: bool
+
+    def __str__(self) -> str:
+        status = "PASS" if self.all_passed else "FAIL"
+        lines = [
+            f"submission check for {self.alpha_id}: {status}",
+            f"alpha: {self.alpha_type} | region={self.region} | stage={self.stage} | status={self.status}",
+            f"IS checks: {self.is_checks_pass} PASS, {self.is_checks_warn} WARNING, "
+            f"{self.is_checks_fail} FAIL, {self.is_checks_pending} PENDING",
+        ]
+        for f in self.failed_checks:
+            lines.append(f"  [FAIL] {f}")
+        for w in self.warning_checks:
+            lines.append(f"  [WARNING] {w}")
+        lines.append(str(self.correlation_checks))
+        return "\n".join(lines)
+
 
 class CorrelationMixin:
     """Handles production/self/powerpool correlation, check_correlation, submission_check."""
@@ -174,17 +206,41 @@ class CorrelationMixin:
             all_passed=all_passed
         )
 
-    async def get_submission_check(self, alpha_id: str) -> Dict[str, Any]:
+    async def get_submission_check(self, alpha_id: str) -> SubmissionCheckResponse:
         """Comprehensive pre-submission check."""
         await self.ensure_authenticated()
 
         correlation_checks = await self.check_correlation(alpha_id)
-        alpha_details = await self.get_alpha_details(alpha_id)
-        if isinstance(alpha_details, BaseModel):
-            alpha_details = alpha_details.model_dump()
+        alpha = await self.get_alpha_details(alpha_id)
 
-        return {
-            'correlation_checks': correlation_checks,
-            'alpha_details': alpha_details,
-            'all_passed': correlation_checks.all_passed
-        }
+        def _format_check(c) -> str:
+            detail = c.name
+            if hasattr(c, "limit") and hasattr(c, "value"):
+                detail += f" (limit={c.limit}, value={c.value})"
+            elif hasattr(c, "message"):
+                detail += f" ({c.message})"
+            return detail
+
+        checks = alpha.is_.checks if alpha.is_ else []
+        failed = [c for c in checks if c.result == "FAIL"]
+        warned = [c for c in checks if c.result == "WARNING"]
+        passed = [c for c in checks if c.result == "PASS"]
+        pending = [c for c in checks if c.result == "PENDING"]
+
+        region = alpha.settings.region.value if alpha.settings and alpha.settings.region else "-"
+
+        return SubmissionCheckResponse(
+            alpha_id=alpha_id,
+            alpha_type=alpha.type,
+            region=region,
+            stage=alpha.stage,
+            status=alpha.status,
+            correlation_checks=correlation_checks,
+            is_checks_pass=len(passed),
+            is_checks_warn=len(warned),
+            is_checks_fail=len(failed),
+            is_checks_pending=len(pending),
+            failed_checks=[_format_check(c) for c in failed],
+            warning_checks=[_format_check(c) for c in warned],
+            all_passed=correlation_checks.all_passed and len(failed) == 0,
+        )

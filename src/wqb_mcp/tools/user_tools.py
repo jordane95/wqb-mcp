@@ -1,9 +1,11 @@
 """User MCP tools."""
 
+from pathlib import Path
 from typing import Optional
 
 from . import mcp
 from ..client import brain_client
+from ..utils import save_flat_csv
 
 
 @mcp.tool()
@@ -35,23 +37,55 @@ async def get_messages(limit: Optional[int] = None, offset: int = 0):
     return str(await brain_client.get_messages(limit, offset))
 
 
-@mcp.tool()
-async def get_user_activities(user_id: str, grouping: Optional[str] = None):
+# @mcp.tool()
+async def get_user_activities(user_id: str, grouping: Optional[str] = None,
+                               output_path: Optional[str] = None):
     """Get user activity diversity data."""
-    return str(await brain_client.get_user_activities(user_id, grouping))
+    response = await brain_client.get_user_activities(user_id, grouping)
+    rows = [item.model_dump() for item in response.results]
+    target = Path(output_path) if output_path else Path("assets") / "data" / "user_activities.csv"
+    col_count = save_flat_csv(rows, target)
+    return (
+        "Saved user activities CSV\n"
+        f"- path: `{target}`\n"
+        f"- rows: `{len(rows)}`\n"
+        f"- columns: `{col_count}`\n"
+        f"- preview:\n```text\n{response}\n```"
+    )
 
 
 @mcp.tool()
-async def get_pyramid_multipliers():
+async def get_pyramid_multipliers(output_path: Optional[str] = None):
     """Get current pyramid multipliers showing BRAIN's encouragement levels."""
-    return str(await brain_client.get_pyramid_multipliers())
+    response = await brain_client.get_pyramid_multipliers()
+    rows = [item.model_dump() for item in response.pyramids]
+    target = Path(output_path) if output_path else Path("assets") / "data" / "pyramid_multipliers.csv"
+    col_count = save_flat_csv(rows, target)
+    return (
+        "Saved pyramid multipliers CSV\n"
+        f"- path: `{target}`\n"
+        f"- rows: `{len(rows)}`\n"
+        f"- columns: `{col_count}`\n"
+        f"- preview:\n```text\n{response}\n```"
+    )
 
 
 @mcp.tool()
 async def get_pyramid_alphas(start_date: Optional[str] = None,
-                               end_date: Optional[str] = None):
+                               end_date: Optional[str] = None,
+                               output_path: Optional[str] = None):
     """Get user's current alpha distribution across pyramid categories."""
-    return str(await brain_client.get_pyramid_alphas(start_date, end_date))
+    response = await brain_client.get_pyramid_alphas(start_date, end_date)
+    rows = [item.model_dump() for item in response.pyramids]
+    target = Path(output_path) if output_path else Path("assets") / "data" / "pyramid_alphas.csv"
+    col_count = save_flat_csv(rows, target)
+    return (
+        "Saved pyramid alphas CSV\n"
+        f"- path: `{target}`\n"
+        f"- rows: `{len(rows)}`\n"
+        f"- columns: `{col_count}`\n"
+        f"- preview:\n```text\n{response}\n```"
+    )
 
 
 @mcp.tool()

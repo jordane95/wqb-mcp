@@ -178,7 +178,11 @@ Legend: `+` present, `-` not present.
 }
 ```
 
-## `is.checks` Variant Design (6 Types)
+## `is.investabilityConstrained`
+
+This field is **optional** — some OS alphas omit it entirely. When absent, the `is` block only contains the base performance fields plus `selfCorrelation`, `prodCorrelation`, and `checks`.
+
+## `is.checks` Variant Design (8 Types)
 
 ### Variant: `simple`
 
@@ -209,6 +213,34 @@ Legend: `+` present, `-` not present.
   "ratio": 0.9,
   "limit": -0.06,
   "value": -0.23
+}
+```
+
+### Variant: `ladder`
+
+Time-windowed sharpe checks (e.g. `IS_LADDER_SHARPE`). Extends `limit_value` with a year window.
+
+```json
+{
+  "name": "IS_LADDER_SHARPE",
+  "result": "WARNING",
+  "year": 2,
+  "startDate": "2024-01-01",
+  "endDate": "2022-01-02",
+  "limit": 1.58,
+  "value": 0.48
+}
+```
+
+### Variant: `message`
+
+Checks that carry a descriptive message (e.g. `UNITS` validation warnings).
+
+```json
+{
+  "name": "UNITS",
+  "result": "WARNING",
+  "message": "Incompatible unit for input of \"add\" at index 1, expected \"Unit[CSPrice:1]\", found \"Unit[]\""
 }
 ```
 

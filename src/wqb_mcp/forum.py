@@ -5,16 +5,102 @@ Comprehensive forum functionality including glossary, search, and post viewing u
 """
 
 import asyncio
+import base64
 import re
 import sys
 import time
+from urllib.parse import unquote
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
+from pydantic import BaseModel, Field
 import requests
 import os
+
+
+# -- Pydantic models for forum responses --
+
+class GlossaryTerm(BaseModel):
+    term: str
+    definition: str
+
+
+class GlossaryResponse(BaseModel):
+    terms: List[GlossaryTerm] = Field(default_factory=list)
+
+    def __str__(self) -> str:
+        lines = [f"glossary: {len(self.terms)} terms\n"]
+        for item in self.terms:
+            lines.append(f"**{item.term}**: {item.definition}")
+        return "\n".join(lines)
+
+
+class ForumSearchResult(BaseModel):
+    title: str
+    article_id: str = ""
+    link: str = ""
+    snippet: str = ""
+    votes: int = 0
+    comments: int = 0
+    author: str = "Unknown"
+    date: str = "Unknown"
+    breadcrumbs: List[str] = Field(default_factory=list)
+
+
+class ForumSearchResponse(BaseModel):
+    results: List[ForumSearchResult] = Field(default_factory=list)
+    total_found: int = 0
+
+    def __str__(self) -> str:
+        lines = [f"forum search: {self.total_found} results\n"]
+        for i, r in enumerate(self.results, 1):
+            id_part = f" [id={r.article_id}]" if r.article_id else ""
+            lines.append(f"{i}. **{r.title}**{id_part} by {r.author} ({r.date})")
+            lines.append(f"   votes={r.votes} comments={r.comments}")
+            if r.snippet:
+                lines.append(f"   {r.snippet[:200]}")
+        return "\n".join(lines)
+
+
+class ForumComment(BaseModel):
+    author: str = "Unknown"
+    body: str = ""
+    date: str = "Unknown Date"
+
+
+class ForumPostDetails(BaseModel):
+    votes: str = "0"
+    date: str = "Unknown Date"
+
+
+class ForumPost(BaseModel):
+    title: str = "Unknown Title"
+    author: str = "Unknown Author"
+    body: str = ""
+    details: ForumPostDetails = Field(default_factory=ForumPostDetails)
+
+
+class ForumPostResponse(BaseModel):
+    post: ForumPost = Field(default_factory=ForumPost)
+    comments: List[ForumComment] = Field(default_factory=list)
+    total_comments: int = 0
+
+    def __str__(self) -> str:
+        p = self.post
+        lines = [
+            f"**{p.title}** by {p.author} | votes={p.details.votes} | {p.details.date}",
+            "",
+            p.body[:2000] if p.body else "(no content)",
+        ]
+        if self.comments:
+            lines.append(f"\n--- {self.total_comments} comments ---")
+            for c in self.comments[:5]:
+                lines.append(f"\n[{c.author}]: {c.body[:300]}")
+            if self.total_comments > 5:
+                lines.append(f"\n... and {self.total_comments - 5} more comments")
+        return "\n".join(lines)
 
 def log(message: str, level: str = "INFO"):
     """Log message with timestamp."""
@@ -151,7 +237,7 @@ class ForumScraper:
         
         return browser, context
 
-    async def get_glossary_terms(self, email: str, password: str) -> List[Dict[str, str]]:
+    async def get_glossary_terms(self, email: str, password: str) -> GlossaryResponse:
         """Extract glossary terms from the forum using Playwright."""
         async with async_playwright() as p:
             browser = None
@@ -166,10 +252,12 @@ class ForumScraper:
                 log("Extracting glossary content...", "INFO")
                 content = await page.content()
                 
-                terms = _parse_glossary_terms(content)
-                
-                log(f"Extracted {len(terms)} glossary terms", "SUCCESS")
-                return terms
+                raw_terms = _parse_glossary_terms(content)
+
+                log(f"Extracted {len(raw_terms)} glossary terms", "SUCCESS")
+                return GlossaryResponse(
+                    terms=[GlossaryTerm(**t) for t in raw_terms],
+                )
 
             except Exception as e:
                 log(f"Glossary extraction failed: {str(e)}", "ERROR")
@@ -180,7 +268,7 @@ class ForumScraper:
                     await browser.close()
                     log("Browser closed.", "INFO")
 
-    async def search_forum_posts(self, email: str, password: str, search_query: str, max_results: int = 50, locale: str = "zh-cn") -> Dict[str, Any]:
+    async def search_forum_posts(self, email: str, password: str, search_query: str, max_results: int = 50, locale: str = "zh-cn") -> ForumSearchResponse:
         """Search for posts on the forum using Playwright, with pagination."""
         async with async_playwright() as p:
             browser = None
@@ -257,8 +345,21 @@ class ForumScraper:
                                 else:
                                     full_link = f"{self.base_url}{link}"
                             
+                            # Extract article ID from redirect link
+                            article_id = ""
+                            if full_link and "click?data=" in full_link:
+                                try:
+                                    encoded = unquote(full_link.split("click?data=")[1].split("--")[0])
+                                    decoded = base64.b64decode(encoded)
+                                    id_match = re.search(rb'/posts/(\d+)', decoded)
+                                    if id_match:
+                                        article_id = id_match.group(1).decode()
+                                except Exception:
+                                    pass
+
                             search_results.append({
                                 'title': title,
+                                'article_id': article_id,
                                 'link': full_link,
                                 'snippet': snippet,
                                 'votes': votes,
@@ -277,12 +378,11 @@ class ForumScraper:
                     page_num += 1
 
                 log(f"Found {len(search_results)} results for '{search_query}'", "SUCCESS")
-                
-                return {
-                    "success": True,
-                    "results": search_results,
-                    "total_found": len(search_results)
-                }
+
+                return ForumSearchResponse(
+                    results=[ForumSearchResult(**r) for r in search_results],
+                    total_found=len(search_results),
+                )
 
             except Exception as e:
                 log(f"Forum search failed: {str(e)}", "ERROR")
@@ -291,7 +391,7 @@ class ForumScraper:
                 if browser:
                     await browser.close()
 
-    async def read_full_forum_post(self, email: str, password: str, post_url_or_id: str, include_comments: bool = True) -> Dict[str, Any]:
+    async def read_full_forum_post(self, email: str, password: str, post_url_or_id: str, include_comments: bool = True) -> ForumPostResponse:
         """Read a complete forum post and all its comments using Playwright."""
         async with async_playwright() as p:
             browser = None
@@ -388,9 +488,16 @@ class ForumScraper:
                         page_num += 1
 
                 log(f"Extracted {len(comments)} comments in total.", "SUCCESS")
-                return {
-                    "success": True, "post": post_data, "comments": comments, "total_comments": len(comments)
-                }
+                return ForumPostResponse(
+                    post=ForumPost(
+                        title=post_data.get("title", "Unknown Title"),
+                        author=post_data.get("author", "Unknown Author"),
+                        body=post_data.get("body", ""),
+                        details=ForumPostDetails(**(post_data.get("details", {}))),
+                    ),
+                    comments=[ForumComment(**c) for c in comments],
+                    total_comments=len(comments),
+                )
 
             except Exception as e:
                 log(f"Failed to read forum post: {str(e)}", "ERROR")

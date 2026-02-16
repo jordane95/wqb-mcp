@@ -23,7 +23,6 @@ async def get_glossary_terms(email: str = "", password: str = ""):
     password = password or stored_password
     if not email or not password:
         raise ValueError("Authentication credentials not provided or found in config.")
-
     return str(await forum_scraper.get_glossary_terms(email, password))
 
 

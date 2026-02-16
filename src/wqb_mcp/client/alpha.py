@@ -141,7 +141,13 @@ class AlphaThemeMultiplier(AlphaIdName):
     multiplier: Optional[float] = None
 
 
+# -- Alpha check models (discriminated by field presence) --
+# The API returns checks with varying shapes; Pydantic tries each variant
+# in Union order and picks the first match.  More-specific models must
+# come before less-specific ones.
+
 class AlphaCheckBase(BaseModel):
+    """Fallback for simple pass/fail checks (e.g. CONCENTRATED_WEIGHT, POWER_POOL_CORRELATION)."""
     model_config = {"extra": "forbid"}
 
     name: str
@@ -149,34 +155,53 @@ class AlphaCheckBase(BaseModel):
 
 
 class AlphaCheckLimitValue(AlphaCheckBase):
+    """Checks with a numeric threshold and actual value (e.g. LOW_SHARPE, HIGH_TURNOVER)."""
     limit: float
     value: float
 
 
 class AlphaCheckLimitValueRatio(AlphaCheckLimitValue):
+    """Limit/value checks that also carry a ratio (e.g. LOW_SUB_UNIVERSE_SHARPE)."""
     ratio: float
 
 
+class AlphaCheckLadder(AlphaCheckLimitValue):
+    """Time-windowed limit/value checks (e.g. IS_LADDER_SHARPE)."""
+    year: int
+    startDate: str
+    endDate: str
+
+
 class AlphaCheckCompetitions(AlphaCheckBase):
+    """Lists competitions the alpha qualifies for."""
     competitions: List[AlphaIdName]
 
 
 class AlphaCheckPyramids(AlphaCheckBase):
+    """Pyramid category matching result (MATCHES_PYRAMID)."""
     effective: int
     multiplier: float
     pyramids: List[AlphaNamedMultiplier]
 
 
 class AlphaCheckThemes(AlphaCheckBase):
+    """Theme matching result (MATCHES_THEMES)."""
     themes: List[AlphaThemeMultiplier]
+
+
+class AlphaCheckMessage(AlphaCheckBase):
+    """Checks that carry a descriptive message (e.g. UNITS validation warnings)."""
+    message: str
 
 
 AlphaCheck = Union[
     AlphaCheckLimitValueRatio,
+    AlphaCheckLadder,
     AlphaCheckLimitValue,
     AlphaCheckCompetitions,
     AlphaCheckPyramids,
     AlphaCheckThemes,
+    AlphaCheckMessage,
     AlphaCheckBase,
 ]
 
@@ -208,7 +233,7 @@ class AlphaIsMetrics(AlphaPerformanceBlock):
     glbAmer: Optional[AlphaPerformanceBlock] = None
     glbApac: Optional[AlphaPerformanceBlock] = None
     glbEmea: Optional[AlphaPerformanceBlock] = None
-    investabilityConstrained: AlphaPerformanceBlock
+    investabilityConstrained: Optional[AlphaPerformanceBlock] = None
     riskNeutralized: Optional[AlphaPerformanceBlock] = None
     checks: List[AlphaCheck] = Field(default_factory=list)
 
