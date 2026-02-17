@@ -2,6 +2,14 @@
 
 Steps to refactor an MCP tool from raw dict returns to typed Pydantic models with compact text output.
 
+## 0. Capture raw API responses
+
+- Create a script in `scripts/capture_<feature>_raw.py` following the `capture_simulation_raw.py` pattern
+- Use `brain_client` for authentication, hit the endpoint, record status code + headers + body
+- Capture both success and error responses (e.g. 403 already-submitted, 404 not-found)
+- Save to `assets/logs/<feature>_raw_probe.json`
+- Document the contract in `docs/<feature>_api.md`
+
 ## 1. Document the API response
 
 - Hit the raw API endpoints and record the actual JSON response structure

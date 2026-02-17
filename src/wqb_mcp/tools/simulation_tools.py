@@ -14,10 +14,10 @@ async def create_simulation(
     region: str = "USA",
     universe: str = "TOP3000",
     delay: int = 1,
-    decay: float = 0.0,
-    neutralization: str = "NONE",
-    truncation: float = 0.0,
-    test_period: str = "P0Y0M",
+    decay: float = 4.0,
+    neutralization: str = "SUBINDUSTRY",
+    truncation: float = 0.08,
+    test_period: str = "P1Y0M",
     unit_handling: str = "VERIFY",
     nan_handling: str = "OFF",
     language: str = "FASTEXPR",
@@ -32,30 +32,8 @@ async def create_simulation(
     component_activation: str = "IS",
 ):
     """
-    Create a new simulation on BRAIN platform.
-
-    This tool creates and starts a simulation with your alpha code. Use this after you have your alpha formula ready.
-
-    Args:
-        type: Simulation type ("REGULAR" or "SUPER")
-        instrument_type: Type of instruments (e.g., "EQUITY")
-        region: Market region (e.g., "USA")
-        universe: Universe of stocks (e.g., "TOP3000")
-        delay: Data delay (0 or 1)
-        decay: Decay value for the simulation
-        neutralization: Neutralization method
-        truncation: Truncation value
-        test_period: Test period (e.g., "P0Y0M" for 1 year 6 months)
-        unit_handling: Unit handling method
-        nan_handling: NaN handling method
-        language: Expression language (e.g., "FASTEXPR")
-        visualization: Enable visualization
-        regular: Regular simulation code (for REGULAR type)
-        combo: Combo code (for SUPER type)
-        selection: Selection code (for SUPER type)
-
-    Returns:
-        Simulation creation result with ID and location
+    Create and start a single simulation on BRAIN platform.
+    Use wait_for_simulation to poll until completion.
     """
     settings = SimulationSettings(
         instrumentType=instrument_type,
@@ -90,16 +68,7 @@ async def create_simulation(
 
 @mcp.tool()
 async def wait_for_simulation(location_or_id: str, max_polls: int = 200):
-    """
-    Poll a simulation until completion or error.
-
-    Args:
-        location_or_id: Simulation location URL or simulation id
-        max_polls: Maximum number of polls before stopping
-
-    Returns:
-        Final simulation snapshot with completion metadata
-    """
+    """Poll a simulation until completion or error. Returns alpha details on success."""
     result = await brain_client.wait_for_simulation(location_or_id, max_polls)
     if not result.done:
         return str(result)
@@ -119,10 +88,10 @@ async def create_multi_simulation(
     region: str = "USA",
     universe: str = "TOP3000",
     delay: int = 1,
-    decay: float = 0.0,
-    neutralization: str = "NONE",
-    truncation: float = 0.0,
-    test_period: str = "P0Y0M",
+    decay: float = 4.0,
+    neutralization: str = "SUBINDUSTRY",
+    truncation: float = 0.08,
+    test_period: str = "P1Y0M",
     unit_handling: str = "VERIFY",
     nan_handling: str = "OFF",
     language: str = "FASTEXPR",
@@ -132,33 +101,13 @@ async def create_multi_simulation(
     settings: Optional[List[Dict[str, Any]]] = None,
 ):
     """
-    Create multiple regular alpha simulations on BRAIN platform in a single request.
+    Batch-submit regular alpha simulations. Modes:
+    - N expressions × 1 shared setting (settings=None)
+    - N expressions × N settings (zipped 1:1)
+    - 1 expression × M settings (broadcast)
 
-    This tool submits a multisimulation with multiple regular alpha expressions
-    and returns the multisimulation id/location immediately.
-
-    Use wait_for_multi_simulation to poll children until completion.
-    Call get_platform_setting_options to get the valid options for the simulation.
-    Args:
-        alpha_expressions: List of alpha expressions (2-8 expressions required)
-        instrument_type: Type of instruments (default: "EQUITY")
-        region: Market region (default: "USA")
-        universe: Universe of stocks (default: "TOP3000")
-        delay: Data delay (default: 1)
-        decay: Decay value (default: 0.0)
-        neutralization: Neutralization method (default: "NONE")
-        truncation: Truncation value (default: 0.0)
-        test_period: Test period (default: "P0Y0M")
-        unit_handling: Unit handling method (default: "VERIFY")
-        nan_handling: NaN handling method (default: "OFF")
-        language: Expression language (default: "FASTEXPR")
-        visualization: Enable visualization (default: True)
-        pasteurization: Pasteurization setting (default: "ON")
-        max_trade: Max trade setting (default: "OFF")
-        settings: Optional per-alpha settings overrides zipped with alpha_expressions.
-
-    Returns:
-        Multisimulation submission result with id and location
+    Use wait_for_multi_simulation to poll results.
+    Use get_platform_setting_options to discover valid options.
     """
     common_settings = SimulationSettings(
         instrumentType=instrument_type,
@@ -190,8 +139,11 @@ async def create_multi_simulation(
         overrides = [{} for _ in alpha_expressions]
     else:
         overrides = settings
+    # Broadcast: 1 expression × M settings → repeat expression M times
+    if len(alpha_expressions) == 1 and len(overrides) > 1:
+        alpha_expressions = alpha_expressions * len(overrides)
     if len(overrides) != len(alpha_expressions):
-        raise ValueError("settings must have the same length as alpha_expressions")
+        raise ValueError("settings must have the same length as alpha_expressions (or use 1 expression with M settings)")
     allowed_setting_keys = set(SimulationSettings.model_fields.keys())
     allowed_input_keys = allowed_setting_keys | set(settings_key_map.keys())
 

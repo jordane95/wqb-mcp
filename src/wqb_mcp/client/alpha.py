@@ -1,8 +1,9 @@
 """Alpha management mixin for BrainApiClient."""
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
+from asyncio import sleep as async_sleep
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, TypeAdapter, model_validator
 from ..utils import parse_json_or_error
 
 
@@ -157,7 +158,7 @@ class AlphaCheckBase(BaseModel):
 class AlphaCheckLimitValue(AlphaCheckBase):
     """Checks with a numeric threshold and actual value (e.g. LOW_SHARPE, HIGH_TURNOVER, CONCENTRATED_WEIGHT)."""
     limit: float
-    value: float
+    value: Optional[float] = None
     date: Optional[str] = None
 
 
@@ -206,6 +207,8 @@ AlphaCheck = Union[
     AlphaCheckBase,
 ]
 
+_AlphaCheckAdapter = TypeAdapter(AlphaCheck)
+
 
 class AlphaPerformanceBlock(BaseModel):
     pnl: float
@@ -217,16 +220,17 @@ class AlphaPerformanceBlock(BaseModel):
     drawdown: float
     margin: float
     sharpe: float
-    fitness: float
+    fitness: Optional[float] = None
     startDate: Optional[str] = None
 
     def __str__(self) -> str:
+        fitness_str = f"{self.fitness:.4f}" if self.fitness is not None else "None"
         return (
+            f"sharpe={self.sharpe:.4f} fitness={fitness_str} "
             f"pnl={self.pnl:.4f} bookSize={self.bookSize:.4f} "
             f"longCount={self.longCount} shortCount={self.shortCount} "
             f"turnover={self.turnover:.4f} returns={self.returns:.4f} "
-            f"drawdown={self.drawdown:.4f} margin={self.margin:.4f} "
-            f"sharpe={self.sharpe:.4f} fitness={self.fitness:.4f}"
+            f"drawdown={self.drawdown:.4f} margin={self.margin:.4f}"
         )
 
 
@@ -388,11 +392,56 @@ class AlphaDetailsResponse(BaseModel):
             f"stage: {self.stage or '-'}",
             f"status: {self.status or '-'}",
         ]
+        # Expression
+        if self.regular:
+            lines.append(f"expression: {self.regular.code}")
+        # Settings
+        if self.settings:
+            s = self.settings
+            lines.append(
+                f"settings: universe={s.universe.value} delay={s.delay} decay={s.decay} "
+                f"neutralization={s.neutralization} truncation={s.truncation} "
+                f"instrumentType={s.instrumentType} nanHandling={s.nanHandling} "
+                f"pasteurization={s.pasteurization}"
+            )
         if self.is_ is not None:
             lines.append(f"IS: {self.is_}")
         if self.os is not None:
             lines.append(f"OS: {self.os}")
         return "\n".join(lines)
+
+
+class SubmitAlphaResponse(BaseModel):
+    """Result of POST /alphas/{alpha_id}/submit.
+
+    Full lifecycle:
+    - 201: checks running → poll GET Location until resolved
+    - 200 poll (no Retry-After): all checks passed → submitted
+    - 403 poll or direct: checks resolved with FAILs
+    - 403 direct: ALREADY_SUBMITTED
+    - 404: alpha not found
+    """
+
+    alpha_id: str
+    submitted: bool
+    status_code: int
+    location: Optional[str] = None
+    polls: int = 0
+    checks: List[AlphaCheck] = Field(default_factory=list)
+    detail: Optional[str] = None
+
+    def __str__(self) -> str:
+        if self.submitted:
+            return f"alpha {self.alpha_id}: submitted ({self.polls} polls)"
+        parts = [f"alpha {self.alpha_id}: FAILED (HTTP {self.status_code})"]
+        if self.detail:
+            parts.append(f"  detail: {self.detail}")
+        for c in self.checks:
+            if c.result == "FAIL":
+                parts.append(f"  - {c.name}: {c.result}")
+        if self.polls:
+            parts.append(f"  polls: {self.polls}")
+        return "\n".join(parts)
 
 
 class AlphaMixin:
@@ -405,16 +454,81 @@ class AlphaMixin:
         response.raise_for_status()
         return AlphaDetailsResponse.model_validate(parse_json_or_error(response, f"/alphas/{alpha_id}"))
 
-    async def submit_alpha(self, alpha_id: str) -> Dict[str, Any]:
-        """Submit an alpha for production."""
+    async def submit_alpha(self, alpha_id: str, max_polls: int = 60) -> SubmitAlphaResponse:
+        """Submit an alpha and poll until checks resolve."""
         await self.ensure_authenticated()
         response = self.session.post(f"{self.base_url}/alphas/{alpha_id}/submit")
-        response.raise_for_status()
-        return {
-            "submitted": True,
-            "alpha_id": alpha_id,
-            "status_code": response.status_code,
-        }
+        if response.status_code not in (201, 403, 404):
+            response.raise_for_status()
+
+        # 404 — not found
+        if response.status_code == 404:
+            body = parse_json_or_error(response, f"/alphas/{alpha_id}/submit")
+            return SubmitAlphaResponse(
+                alpha_id=alpha_id, submitted=False, status_code=404,
+                detail=body.get("detail", "Not found."),
+            )
+
+        # 403 direct — checks already resolved (e.g. ALREADY_SUBMITTED, stale checks)
+        if response.status_code == 403:
+            return self._parse_submit_checks(alpha_id, response, polls=0)
+
+        # 201 — checks running, poll Location
+        if response.status_code == 201:
+            location = response.headers.get("Location", "")
+            # API returns http:// but server requires https://
+            if location.startswith("http://"):
+                location = "https://" + location[len("http://"):]
+            if not location:
+                return SubmitAlphaResponse(
+                    alpha_id=alpha_id, submitted=True, status_code=201,
+                )
+            retry_after = response.headers.get("Retry-After", "1")
+            for poll_index in range(1, max_polls + 1):
+                await async_sleep(float(retry_after or 1))
+                poll_resp = self.session.get(location)
+                retry_after = poll_resp.headers.get("Retry-After")
+                done = retry_after in (None, "0", "0.0")
+
+                # 403 — checks resolved with failures
+                if poll_resp.status_code == 403:
+                    return self._parse_submit_checks(alpha_id, poll_resp, polls=poll_index)
+
+                # 404 — submit endpoint gone, alpha moved to OS (success)
+                if poll_resp.status_code == 404:
+                    return SubmitAlphaResponse(
+                        alpha_id=alpha_id, submitted=True, status_code=200,
+                        polls=poll_index,
+                    )
+
+                # 200 with no Retry-After — all checks passed
+                if poll_resp.status_code == 200 and done:
+                    return SubmitAlphaResponse(
+                        alpha_id=alpha_id, submitted=True, status_code=200,
+                        location=location, polls=poll_index,
+                    )
+
+                # 200 with Retry-After — still running, continue
+            # Exhausted polls
+            return SubmitAlphaResponse(
+                alpha_id=alpha_id, submitted=False, status_code=200,
+                location=location, polls=max_polls,
+                detail=f"Checks still running after {max_polls} polls.",
+            )
+
+    def _parse_submit_checks(
+        self, alpha_id: str, response, polls: int
+    ) -> SubmitAlphaResponse:
+        """Parse a 403 submit response with is.checks[]."""
+        body = parse_json_or_error(response, f"/alphas/{alpha_id}/submit")
+        checks_raw = (body.get("is") or {}).get("checks") or []
+        return SubmitAlphaResponse(
+            alpha_id=alpha_id,
+            submitted=False,
+            status_code=403,
+            polls=polls,
+            checks=[_AlphaCheckAdapter.validate_python(c) for c in checks_raw],
+        )
 
     async def set_alpha_properties(
         self,
@@ -425,7 +539,7 @@ class AlphaMixin:
         selection_desc: Optional[str] = None,
         combo_desc: Optional[str] = None,
         regular_desc: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> AlphaDetailsResponse:
         """Update alpha properties (name, color, tags, descriptions)."""
         await self.ensure_authenticated()
 
@@ -441,7 +555,7 @@ class AlphaMixin:
 
         response = self.session.patch(f"{self.base_url}/alphas/{alpha_id}", json=data)
         response.raise_for_status()
-        return parse_json_or_error(response, f"/alphas/{alpha_id}")
+        return AlphaDetailsResponse.model_validate(parse_json_or_error(response, f"/alphas/{alpha_id}"))
 
     async def performance_comparison(
         self, alpha_id: str, team_id: Optional[str] = None, competition: Optional[str] = None

@@ -1,6 +1,7 @@
 """Alpha recordsets mixin for BrainApiClient."""
 
 import csv
+import time
 from enum import Enum
 from pathlib import Path
 from typing import Any, List, Optional, Union
@@ -92,6 +93,16 @@ class AlphaRecordsetsMixin:
                 ) from e
 
         endpoint = f"/alphas/{alpha_id}/recordsets/{record_set.value}"
-        response = self.session.get(f"{self.base_url}{endpoint}")
-        response.raise_for_status()
+        max_retries = 30
+        for _ in range(max_retries):
+            response = self.session.get(f"{self.base_url}{endpoint}")
+            response.raise_for_status()
+            retry_after = float(response.headers.get("Retry-After", 0))
+            if retry_after > 0:
+                time.sleep(retry_after)
+                continue
+            if not response.text.strip():
+                time.sleep(2)
+                continue
+            break
         return AlphaRecordSetResponse.model_validate(parse_json_or_error(response, endpoint))
