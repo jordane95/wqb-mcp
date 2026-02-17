@@ -70,4 +70,28 @@ async def get_platform_setting_options():
     Returns:
         A structured list of valid combinations and choice lists to validate or fix simulation settings.
     """
-    return str(await brain_client.get_platform_setting_options())
+    response = await brain_client.get_platform_setting_options()
+
+    # Build flat rows for CSV: one row per combination with full lists
+    rows = []
+    for combo in response.instrument_options:
+        rows.append({
+            "instrument_type": combo.instrument_type,
+            "region": combo.region,
+            "delay": combo.delay,
+            "universes": "|".join(combo.universe),
+            "neutralizations": "|".join(combo.neutralization),
+            "universe_count": len(combo.universe),
+            "neutralization_count": len(combo.neutralization),
+        })
+
+    target = Path("assets") / "data" / "platform_setting_options.csv"
+    col_count = save_flat_csv(rows, target)
+
+    return (
+        f"{response}\n\n"
+        f"Full results saved to CSV:\n"
+        f"- csv_path: `{target}`\n"
+        f"- csv_rows: `{len(rows)}`\n"
+        f"- csv_columns: `{col_count}`"
+    )

@@ -16,8 +16,9 @@ class SimulationSettingCombination(BaseModel):
 
     def __str__(self) -> str:
         return (
-            f"{self.instrument_type}/{self.region}/D{self.delay} | "
-            f"universes={len(self.universe)} | neutralization={len(self.neutralization)}"
+            f"{self.instrument_type}/{self.region}/D{self.delay}\n"
+            f"  universes: {', '.join(self.universe)}\n"
+            f"  neutralization: {', '.join(self.neutralization)}"
         )
 
 
@@ -28,7 +29,7 @@ class SimulationSettingOptionsResponse(BaseModel):
     regions_by_type: Dict[str, List[str]] = Field(default_factory=dict)
 
     def __str__(self) -> str:
-        preview = "\n".join(f"{i + 1}. {item}" for i, item in enumerate(self.instrument_options[:5]))
+        preview = "\n".join(f"{i + 1}. {item}" for i, item in enumerate(self.instrument_options))
         if not preview:
             preview = "(empty)"
         return (

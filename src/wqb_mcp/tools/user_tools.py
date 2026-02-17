@@ -27,6 +27,10 @@ async def get_messages(limit: Optional[int] = None, offset: int = 0):
     """
     Get messages for the current user with optional pagination.
 
+    Returns full message content including announcements about Power Pool themes,
+    competition updates, new dataset launches, platform changes, and other important notices.
+    Use this to check recent announcements and stay up-to-date with BRAIN platform news.
+
     Args:
         limit: Maximum number of messages to return (e.g., 10 for top 10 messages)
         offset: Number of messages to skip (for pagination)

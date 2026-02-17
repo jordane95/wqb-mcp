@@ -155,9 +155,10 @@ class AlphaCheckBase(BaseModel):
 
 
 class AlphaCheckLimitValue(AlphaCheckBase):
-    """Checks with a numeric threshold and actual value (e.g. LOW_SHARPE, HIGH_TURNOVER)."""
+    """Checks with a numeric threshold and actual value (e.g. LOW_SHARPE, HIGH_TURNOVER, CONCENTRATED_WEIGHT)."""
     limit: float
     value: float
+    date: Optional[str] = None
 
 
 class AlphaCheckLimitValueRatio(AlphaCheckLimitValue):

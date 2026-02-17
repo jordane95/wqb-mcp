@@ -172,20 +172,43 @@ class DataMixin:
                             delay: int = 1, universe: str = "TOP3000", theme: str = "false",
                             dataset_id: Optional[str] = None, data_type: str = "ALL",
                             search: Optional[str] = None) -> DataFieldsResponse:
-        """Get available data fields."""
+        """Get available data fields, automatically paginating to fetch all results."""
         await self.ensure_authenticated()
 
-        query = DataFieldsQuery(
-            instrument_type=instrument_type,
-            region=region,
-            delay=delay,
-            universe=universe,
-            theme=theme,
-            dataset_id=dataset_id,
-            data_type=data_type,
-            search=search,
-        )
+        page_size = 50
+        all_results: List[DataFieldItem] = []
+        offset = 0
+        total_count: Optional[int] = None
 
-        response = self.session.get(f"{self.base_url}/data-fields", params=query.to_params())
-        response.raise_for_status()
-        return DataFieldsResponse.model_validate(parse_json_or_error(response, "/data-fields"))
+        while True:
+            query = DataFieldsQuery(
+                instrument_type=instrument_type,
+                region=region,
+                delay=delay,
+                universe=universe,
+                theme=theme,
+                dataset_id=dataset_id,
+                data_type=data_type,
+                search=search,
+                limit=page_size,
+                offset=offset,
+            )
+
+            response = self.session.get(f"{self.base_url}/data-fields", params=query.to_params())
+            response.raise_for_status()
+            page = DataFieldsResponse.model_validate(parse_json_or_error(response, "/data-fields"))
+
+            if total_count is None:
+                total_count = page.count
+
+            all_results.extend(page.results)
+
+            if len(all_results) >= total_count or len(page.results) < page_size:
+                break
+
+            offset += page_size
+
+        assert len(all_results) == total_count, (
+            f"Pagination mismatch: fetched {len(all_results)} but API reported {total_count}"
+        )
+        return DataFieldsResponse(count=total_count or 0, results=all_results)

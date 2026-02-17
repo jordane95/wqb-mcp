@@ -174,12 +174,15 @@ class MessagesResponse(PaginatedResponseBase):
     def __str__(self) -> str:
         unread = sum(1 for item in self.results if item.read is False)
         lines = [f"messages: count={self.count} showing={len(self.results)} unread_in_page={unread}"]
-        for i, item in enumerate(self.results[:3], start=1):
+        for i, item in enumerate(self.results, start=1):
             lines.append(
-                f"{i}. {item.id} | {item.type or '-'} | {item.title or '-'} | read={item.read}"
+                f"\n---\n{i}. {item.id} | {item.type or '-'} | {item.title or '-'} | "
+                f"date={item.dateCreated or '-'} | read={item.read}"
             )
+            if item.description:
+                lines.append(item.description)
         if self.image_handling:
-            lines.append(f"image_handling={self.image_handling}")
+            lines.append(f"\nimage_handling={self.image_handling}")
         return "\n".join(lines)
 
 
