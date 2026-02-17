@@ -19,7 +19,7 @@ Minimal MCP server for WorldQuant BRAIN platform integration with Claude Code.
 pip install -e .
 
 # Install Playwright browser
-python3 -m playwright install chromium
+python -m playwright install chromium
 ```
 
 ### 2. Configure Credentials
@@ -36,7 +36,7 @@ Choose one of the following methods:
 This registers the server and configures credentials in one step:
 
 ```bash
-claude mcp add wqb-mcp -e WQB_EMAIL=you@example.com -e WQB_PASSWORD=yourpass -- python3 -m wqb_mcp.server
+claude mcp add wqb-mcp -e WQB_EMAIL=you@example.com -e WQB_PASSWORD=yourpass -- python -m wqb_mcp.server
 ```
 
 **Method 2: System keyring**
@@ -49,10 +49,8 @@ wqb-mcp-setup
 
 Only needed if using Method 2 (Method 1 already registers the server).
 
-> **Note:** Use `python3` (not `python`) to ensure the correct interpreter is used when Claude Code spawns the process. Shell aliases don't work in non-interactive subprocesses.
-
 ```bash
-claude mcp add wqb-mcp -- python3 -m wqb_mcp.server
+claude mcp add wqb-mcp -- python -m wqb_mcp.server
 ```
 
 ### 4. Verify & Restart
@@ -81,7 +79,7 @@ Once configured, the MCP server provides tools for:
 ### MCP shows "failed" status
 
 1. Check credentials are configured (see step 2 above)
-2. Make sure you used `python3` not `python` in `claude mcp add`
+2. Make sure the `python` path in `claude mcp add` matches your system's Python executable
 3. Run debug mode to see errors:
 ```bash
 claude --debug
@@ -91,5 +89,5 @@ claude --debug
 
 Reinstall browser:
 ```bash
-python3 -m playwright install chromium
+python -m playwright install chromium
 ```
