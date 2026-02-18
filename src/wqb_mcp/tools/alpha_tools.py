@@ -97,6 +97,19 @@ async def submit_alpha(alpha_id: str):
 
 
 @mcp.tool()
+async def check_alpha(alpha_id: str):
+    """Check if an alpha is ready for submission using the platform's native check endpoint.
+
+    Runs server-side checks (Sharpe, turnover, correlation, pyramid, themes, etc.)
+    and polls until results are available. This is the same check the platform UI runs.
+
+    Args:
+        alpha_id: The ID of the alpha to check.
+    """
+    return str(await brain_client.check_alpha(alpha_id))
+
+
+@mcp.tool()
 async def set_alpha_properties(alpha_id: str, name: Optional[str] = None,
                                color: Optional[str] = None, tags: Optional[List[str]] = None,
                                selection_desc: Optional[str] = None, combo_desc: Optional[str] = None,

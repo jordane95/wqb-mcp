@@ -189,6 +189,7 @@ class AlphaCheckPyramids(AlphaCheckBase):
 class AlphaCheckThemes(AlphaCheckBase):
     """Theme matching result (MATCHES_THEMES)."""
     themes: List[AlphaThemeMultiplier]
+    multiplier: Optional[float] = None
 
 
 class AlphaCheckMessage(AlphaCheckBase):
@@ -444,8 +445,55 @@ class SubmitAlphaResponse(BaseModel):
         return "\n".join(parts)
 
 
+class AlphaCheckResponse(BaseModel):
+    """Result of GET /alphas/{alpha_id}/check.
+
+    Polling lifecycle:
+    - 200 with Retry-After → checks still running, keep polling
+    - 200 without Retry-After → checks complete, body has is.checks[]
+    - 403 → checks resolved with failures
+    - 404 → alpha not found
+    """
+
+    alpha_id: str
+    ready: bool
+    status_code: int
+    polls: int = 0
+    checks: List[AlphaCheck] = Field(default_factory=list)
+    pass_count: int = 0
+    warn_count: int = 0
+    fail_count: int = 0
+    pending_count: int = 0
+    failed_checks: List[str] = Field(default_factory=list)
+    warning_checks: List[str] = Field(default_factory=list)
+    detail: Optional[str] = None
+
+    def __str__(self) -> str:
+        status = "READY" if self.ready else "NOT READY"
+        lines = [f"alpha {self.alpha_id} check: {status}"]
+        lines.append(
+            f"  {self.pass_count} PASS, {self.warn_count} WARNING, "
+            f"{self.fail_count} FAIL, {self.pending_count} PENDING"
+        )
+        if self.detail:
+            lines.append(f"  detail: {self.detail}")
+        for f in self.failed_checks:
+            lines.append(f"  [FAIL] {f}")
+        for w in self.warning_checks:
+            lines.append(f"  [WARNING] {w}")
+        # Show pyramid/theme info from PASS checks
+        for c in self.checks:
+            if isinstance(c, AlphaCheckPyramids) and c.result == "PASS":
+                pyrs = ", ".join(f"{p.name}(x{p.multiplier})" for p in c.pyramids)
+                lines.append(f"  [PYRAMID] effective={c.effective} multiplier={c.multiplier} | {pyrs}")
+            if isinstance(c, AlphaCheckThemes) and c.result == "PASS":
+                themes = ", ".join(f"{t.name}(x{t.multiplier})" for t in c.themes)
+                lines.append(f"  [THEMES] {themes}")
+        return "\n".join(lines)
+
+
 class AlphaMixin:
-    """Handles alpha details, submit, and property updates."""
+    """Handles alpha details, submit, check, and property updates."""
 
     async def get_alpha_details(self, alpha_id: str) -> AlphaDetailsResponse:
         """Get detailed information about an alpha."""
@@ -453,6 +501,91 @@ class AlphaMixin:
         response = self.session.get(f"{self.base_url}/alphas/{alpha_id}")
         response.raise_for_status()
         return AlphaDetailsResponse.model_validate(parse_json_or_error(response, f"/alphas/{alpha_id}"))
+
+    async def check_alpha(self, alpha_id: str, max_polls: int = 60) -> AlphaCheckResponse:
+        """Call GET /alphas/{alpha_id}/check with polling.
+
+        The platform runs server-side submission-readiness checks (Sharpe,
+        turnover, correlation, pyramid, themes, etc.) and returns results
+        via a Retry-After polling pattern.
+
+        Args:
+            alpha_id: The ID of the alpha to check.
+            max_polls: Maximum polling attempts (default 60).
+        """
+        await self.ensure_authenticated()
+        url = f"{self.base_url}/alphas/{alpha_id}/check"
+
+        for poll_index in range(max_polls):
+            response = self.session.get(url)
+
+            if response.status_code == 404:
+                return AlphaCheckResponse(
+                    alpha_id=alpha_id, ready=False, status_code=404,
+                    detail="Alpha not found.",
+                )
+
+            if response.status_code == 403:
+                return self._parse_check_response(alpha_id, response, poll_index)
+
+            response.raise_for_status()
+
+            retry_after = response.headers.get("Retry-After")
+            done = retry_after in (None, "0", "0.0")
+
+            if done:
+                return self._parse_check_response(alpha_id, response, poll_index)
+
+            self.log(
+                f"Alpha {alpha_id} check running (poll {poll_index + 1}/{max_polls}), "
+                f"retry-after={retry_after}s",
+                "INFO",
+            )
+            await async_sleep(float(retry_after or 1))
+
+        return AlphaCheckResponse(
+            alpha_id=alpha_id, ready=False, status_code=200, polls=max_polls,
+            detail=f"Checks still running after {max_polls} polls.",
+        )
+
+    def _parse_check_response(
+        self, alpha_id: str, response, polls: int,
+    ) -> AlphaCheckResponse:
+        """Parse body of GET /alphas/{alpha_id}/check."""
+        body = parse_json_or_error(response, f"/alphas/{alpha_id}/check")
+        checks_raw = (body.get("is") or {}).get("checks") or []
+        parsed = [_AlphaCheckAdapter.validate_python(c) for c in checks_raw]
+
+        failed = [c for c in parsed if c.result == "FAIL"]
+        warned = [c for c in parsed if c.result == "WARNING"]
+        passed = [c for c in parsed if c.result == "PASS"]
+        pending = [c for c in parsed if c.result == "PENDING"]
+
+        return AlphaCheckResponse(
+            alpha_id=alpha_id,
+            ready=len(failed) == 0 and len(pending) == 0,
+            status_code=response.status_code,
+            polls=polls,
+            checks=parsed,
+            pass_count=len(passed),
+            warn_count=len(warned),
+            fail_count=len(failed),
+            pending_count=len(pending),
+            failed_checks=[self._fmt_check(c) for c in failed],
+            warning_checks=[self._fmt_check(c) for c in warned],
+        )
+
+    @staticmethod
+    def _fmt_check(c) -> str:
+        detail = c.name
+        if hasattr(c, "limit") and c.limit is not None:
+            detail += f" (limit={c.limit}"
+            if hasattr(c, "value") and c.value is not None:
+                detail += f", value={c.value}"
+            detail += ")"
+        elif hasattr(c, "message") and c.message is not None:
+            detail += f" ({c.message})"
+        return detail
 
     async def submit_alpha(self, alpha_id: str, max_polls: int = 60) -> SubmitAlphaResponse:
         """Submit an alpha and poll until checks resolve."""

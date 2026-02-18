@@ -206,11 +206,52 @@ class CorrelationMixin:
             all_passed=all_passed
         )
 
-    async def get_submission_check(self, alpha_id: str) -> SubmissionCheckResponse:
-        """Comprehensive pre-submission check."""
+    async def get_submission_check(self, alpha_id: str, is_power_pool: bool = False) -> SubmissionCheckResponse:
+        """Comprehensive pre-submission check.
+
+        Args:
+            alpha_id: The ID of the alpha to check.
+            is_power_pool: If True, applies Power Pool correlation rules (threshold=0.5, 10% Sharpe rule).
+        """
         await self.ensure_authenticated()
 
-        correlation_checks = await self.check_correlation(alpha_id)
+        # Apply different correlation rules based on alpha type
+        if is_power_pool:
+            # Power Pool: check power-pool correlation with threshold=0.5
+            correlation_checks = await self.check_correlation(
+                alpha_id,
+                check_types=[CorrelationType.POWER_POOL],
+                threshold=0.5
+            )
+
+            # Apply 10% Sharpe rule if PP correlation > 0.5
+            pp_check = correlation_checks.checks.get(CorrelationType.POWER_POOL)
+            if pp_check and pp_check.max_correlation is not None and pp_check.max_correlation > 0.5:
+                # Get current alpha's Sharpe
+                alpha = await self.get_alpha_details(alpha_id)
+                current_sharpe = alpha.is_.sharpe if alpha.is_ else None
+
+                # Get the most correlated PP alpha's Sharpe
+                if pp_check.top_correlations and current_sharpe is not None:
+                    most_correlated_id = pp_check.top_correlations[0].alpha_id
+                    correlated_alpha = await self.get_alpha_details(most_correlated_id)
+                    correlated_sharpe = correlated_alpha.is_.sharpe if correlated_alpha.is_ else None
+
+                    if correlated_sharpe is not None:
+                        # Check if current alpha's Sharpe is 10% higher
+                        if current_sharpe >= 1.1 * correlated_sharpe:
+                            # Override the check to pass
+                            pp_check.passes_check = True
+                            correlation_checks.all_passed = True
+                            self.log(
+                                f"Power Pool correlation > 0.5 but Sharpe is 10% higher "
+                                f"({current_sharpe:.4f} >= 1.1 × {correlated_sharpe:.4f}), check passes",
+                                "INFO"
+                            )
+        else:
+            # Regular alpha: check prod + self correlation with threshold=0.7
+            correlation_checks = await self.check_correlation(alpha_id)
+
         alpha = await self.get_alpha_details(alpha_id)
 
         def _format_check(c) -> str:
@@ -242,5 +283,5 @@ class CorrelationMixin:
             is_checks_pending=len(pending),
             failed_checks=[_format_check(c) for c in failed],
             warning_checks=[_format_check(c) for c in warned],
-            all_passed=correlation_checks.all_passed and len(failed) == 0,
+            all_passed=correlation_checks.all_passed and len(failed) == 0 and len(pending) == 0,
         )

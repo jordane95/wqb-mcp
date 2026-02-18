@@ -24,7 +24,13 @@ async def check_correlation(alpha_id: str, correlation_type: str = "both", thres
     return str(result)
 
 
-@mcp.tool()
-async def get_submission_check(alpha_id: str):
-    """Comprehensive pre-submission check."""
-    return str(await brain_client.get_submission_check(alpha_id))
+# Deprecated: replaced by check_alpha in alpha_tools.py
+# @mcp.tool()
+async def get_submission_check(alpha_id: str, is_power_pool: bool = False):
+    """Comprehensive pre-submission check.
+
+    Args:
+        alpha_id: The ID of the alpha to check.
+        is_power_pool: If True, applies Power Pool correlation rules (threshold=0.5, 10% Sharpe rule).
+    """
+    return str(await brain_client.get_submission_check(alpha_id, is_power_pool=is_power_pool))
