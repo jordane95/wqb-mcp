@@ -10,36 +10,9 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from ..utils import dataframe_markdown_preview, parse_json_or_error
-from .alpha import AlphaDetailsResponse
 
 IMG_TAG_PATTERN = re.compile(r"<img[^>]+src=\"(data:image/[^\"]+)\"[^>]*>", re.IGNORECASE)
 BASE64_IMG_HEURISTIC_PATTERN = re.compile(r"([A-Za-z0-9+/]{500,}={0,2})\"\s*</img>")
-
-
-class UserAlphasResponse(BaseModel):
-    count: int
-    next: Optional[str] = None
-    previous: Optional[str] = None
-    results: List[AlphaDetailsResponse] = Field(default_factory=list)
-
-    def __str__(self) -> str:
-        top = ", ".join(
-            f"{a.id}({(a.settings.region.value if a.settings and a.settings.region else '-')}:"
-            f"{a.stage or '-'}:{a.status or '-'})"
-            for a in self.results[:3]
-        )
-        regions = sorted(
-            {
-                a.settings.region.value
-                for a in self.results
-                if a.settings and a.settings.region is not None
-            }
-        )
-        regions_text = ",".join(regions) if regions else "-"
-        return (
-            f"alphas: {self.count} total | showing {len(self.results)} | "
-            f"regions={regions_text} | {top}"
-        )
 
 
 class ValueFactorTrendScoreResponse(BaseModel):
@@ -387,39 +360,6 @@ class UserMixin:
             new_desc = new_desc.replace(match.group(0), replacement, 1)
 
         return new_desc, attachments
-
-    async def get_user_alphas(
-        self,
-        stage: str = "OS",
-        limit: int = 30,
-        offset: int = 0,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        submission_start_date: Optional[str] = None,
-        submission_end_date: Optional[str] = None,
-        order: Optional[str] = None,
-        hidden: Optional[bool] = None,
-    ) -> UserAlphasResponse:
-        """Get user's alphas with advanced filtering."""
-        await self.ensure_authenticated()
-
-        params: Dict[str, Any] = {"stage": stage, "limit": limit, "offset": offset}
-        if start_date:
-            params["dateCreated>"] = start_date
-        if end_date:
-            params["dateCreated<"] = end_date
-        if submission_start_date:
-            params["dateSubmitted>"] = submission_start_date
-        if submission_end_date:
-            params["dateSubmitted<"] = submission_end_date
-        if order:
-            params["order"] = order
-        if hidden is not None:
-            params["hidden"] = str(hidden).lower()
-
-        response = self.session.get(f"{self.base_url}/users/self/alphas", params=params)
-        response.raise_for_status()
-        return UserAlphasResponse.model_validate(parse_json_or_error(response, "/users/self/alphas"))
 
     async def value_factor_trendScore(self, start_date: str, end_date: str) -> ValueFactorTrendScoreResponse:
         """Compute diversity score for regular alphas in a submission-date window."""

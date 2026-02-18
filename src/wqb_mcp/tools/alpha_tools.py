@@ -1,7 +1,7 @@
 """Alpha MCP tools."""
 
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from . import mcp
 from ..client import brain_client
@@ -32,52 +32,86 @@ async def get_user_alphas(
     submission_end_date: Optional[str] = None,
     order: Optional[str] = None,
     hidden: Optional[bool] = None,
+    sharpe_min: Optional[float] = None,
+    sharpe_max: Optional[float] = None,
+    fitness_min: Optional[float] = None,
+    fitness_max: Optional[float] = None,
+    tag: Optional[str] = None,
+    extra_filters: Optional[Dict[str, Any]] = None,
+    output_path: Optional[str] = None,
 ):
     """
     Get user's alphas with advanced filtering, pagination, and sorting.
 
     This tool retrieves a list of your alphas, allowing for detailed filtering based on stage,
-    creation date, submission date, and visibility. It also supports pagination and custom sorting.
+    creation date, and visibility. It also supports pagination and custom sorting.
+
+    Common named params are provided for convenience. For any other platform-supported filter,
+    use extra_filters with the raw API query parameter names (discoverable via browser dev-tools).
 
     Args:
-        stage (str): The stage of the alphas to retrieve.
-            - "IS": In-Sample (alphas that have not been submitted).
-            - "OS": Out-of-Sample (alphas that have been submitted).
-            Defaults to "IS".
-        limit (int): The maximum number of alphas to return in a single request.
-            For example, `limit=50` will return at most 50 alphas. Defaults to 30.
-        offset (int): The number of alphas to skip from the beginning of the list.
-            Used for pagination. For example, `limit=50, offset=50` will retrieve alphas 51-100.
-            Defaults to 0.
-        start_date (Optional[str]): The earliest creation date for the alphas to be included.
-            Filters for alphas created on or after this date.
-            Example format: "2023-01-01T00:00:00Z".
-        end_date (Optional[str]): The latest creation date for the alphas to be included.
-            Filters for alphas created before this date.
-            Example format: "2023-12-31T23:59:59Z".
-        submission_start_date (Optional[str]): The earliest submission date for the alphas.
-            Only applies to "OS" alphas. Filters for alphas submitted on or after this date.
-            Example format: "2024-01-01T00:00:00Z".
-        submission_end_date (Optional[str]): The latest submission date for the alphas.
-            Only applies to "OS" alphas. Filters for alphas submitted before this date.
-            Example format: "2024-06-30T23:59:59Z".
-        order (Optional[str]): The sorting order for the returned alphas.
-            Prefix with a hyphen (-) for descending order.
-            Examples: "name" (sort by name ascending), "-dateSubmitted" (sort by submission date descending).
-        hidden (Optional[bool]): Filter alphas based on their visibility.
-            - `True`: Only return hidden alphas.
-            - `False`: Only return non-hidden alphas.
-            If not provided, both hidden and non-hidden alphas are returned.
+        stage (str): "IS" (In-Sample/unsubmitted) or "OS" (Out-of-Sample/submitted). Defaults to "IS".
+        limit (int): Max alphas to return. Defaults to 30.
+        offset (int): Number of alphas to skip (pagination). Defaults to 0.
+        start_date (Optional[str]): Earliest creation date. Example: "2023-01-01T00:00:00Z".
+        end_date (Optional[str]): Latest creation date. Example: "2023-12-31T23:59:59Z".
+        submission_start_date (Optional[str]): Earliest submission date (OS only).
+        submission_end_date (Optional[str]): Latest submission date (OS only).
+        order (Optional[str]): Sort order. Prefix with "-" for descending.
+            Examples: "-is.sharpe", "-is.fitness", "dateCreated".
+        hidden (Optional[bool]): True=only hidden, False=only visible, None=both.
+        sharpe_min (Optional[float]): Minimum IS Sharpe ratio (is.sharpe>).
+        sharpe_max (Optional[float]): Maximum IS Sharpe ratio (is.sharpe<). Useful for finding
+            reverse signals, e.g. sharpe_max=-4 to find strong negative alphas to flip.
+        fitness_min (Optional[float]): Minimum IS fitness (is.fitness>).
+        fitness_max (Optional[float]): Maximum IS fitness (is.fitness<). Useful for reverse signals.
+        tag (Optional[str]): Filter by a single tag name.
+        extra_filters (Optional[Dict[str, Any]]): Arbitrary additional query parameters
+            for any platform-supported filter not covered by named params.
+            Examples:
+              {"is.turnover>": 0.01, "is.turnover<": 0.5}  - turnover range
+              {"is.longCount>": 9, "is.shortCount>": 9}  - min instrument counts
+              {"settings.decay>": 5}  - min decay (integer)
+              {"settings.neutralization": "SUBINDUSTRY"}  - specific neutralization
+              {"status": "UNSUBMITTED"}  - filter by status
+        output_path (Optional[str]): Custom CSV output path. Defaults to assets/alphas/user_alphas_{stage}.csv.
 
     Returns:
-        Dict[str, Any]: A dictionary containing a list of alpha details under the 'results' key,
-        along with pagination information. If an error occurs, it returns a dictionary with an 'error' key.
+        Alpha list summary (top 3) with CSV path for full results.
     """
-    return str(await brain_client.get_user_alphas(
+    resp = await brain_client.get_user_alphas(
         stage=stage, limit=limit, offset=offset, start_date=start_date,
         end_date=end_date, submission_start_date=submission_start_date,
-        submission_end_date=submission_end_date, order=order, hidden=hidden
-    ))
+        submission_end_date=submission_end_date, order=order, hidden=hidden,
+        sharpe_min=sharpe_min, sharpe_max=sharpe_max,
+        fitness_min=fitness_min, fitness_max=fitness_max,
+        tag=tag, extra_filters=extra_filters,
+    )
+    if output_path:
+        csv_path = Path(output_path)
+    else:
+        parts = [stage.lower()]
+        if sharpe_min is not None:
+            parts.append(f"sh{sharpe_min}")
+        if sharpe_max is not None:
+            parts.append(f"shx{sharpe_max}")
+        if fitness_min is not None:
+            parts.append(f"ft{fitness_min}")
+        if fitness_max is not None:
+            parts.append(f"ftx{fitness_max}")
+        if tag:
+            parts.append(f"t_{tag}")
+        if order:
+            parts.append(order.replace("-", "d_").replace(".", "_"))
+        if extra_filters:
+            for k, v in sorted(extra_filters.items()):
+                parts.append(f"{k.replace('.', '_').replace('>', 'gt').replace('<', 'lt')}_{v}")
+        slug = "_".join(str(p) for p in parts)
+        # sanitize for filesystem
+        slug = slug.replace("/", "_").replace(" ", "_")[:120]
+        csv_path = Path("assets") / "alphas" / f"user_alphas_{slug}.csv"
+    saved = resp.save_csv(csv_path)
+    return f"{resp.summary()}\n\nFull results saved to: {saved}"
 
 
 @mcp.tool()
@@ -114,7 +148,15 @@ async def set_alpha_properties(alpha_id: str, name: Optional[str] = None,
                                color: Optional[str] = None, tags: Optional[List[str]] = None,
                                selection_desc: Optional[str] = None, combo_desc: Optional[str] = None,
                                regular_desc: Optional[str] = None):
-    """Update alpha properties (name, color, tags, descriptions)."""
+    """Update alpha properties (name, color, tags, descriptions).
+
+    For Power Pool eligibility, regular_desc must follow this format:
+        Idea: <your idea>
+        Rationale for data used: <why this data>
+        Rationale for operators used: <why these operators>
+
+    The full description should be at least 100 characters total to pass POWER_POOL_DESCRIPTION_LENGTH check.
+    """
     return str(await brain_client.set_alpha_properties(alpha_id, name, color, tags, selection_desc, combo_desc, regular_desc))
 
 

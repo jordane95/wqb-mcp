@@ -4,7 +4,10 @@ from typing import Any, Dict, List, Optional, Union
 from asyncio import sleep as async_sleep
 
 from pydantic import BaseModel, Field, TypeAdapter, model_validator
-from ..utils import parse_json_or_error
+import functools
+import pathlib
+
+from ..utils import expand_nested_data, parse_json_or_error, save_flat_csv
 
 
 class AlphaRegion(str, Enum):
@@ -162,6 +165,11 @@ class AlphaCheckLimitValue(AlphaCheckBase):
     date: Optional[str] = None
 
 
+class AlphaCheckAfterCostSharpe(AlphaCheckLimitValue):
+    """Checks that include an after-cost Sharpe value (e.g. LOW_AFTER_COST_SHARPE)."""
+    afterCostSharpe: float
+
+
 class AlphaCheckLimitValueRatio(AlphaCheckLimitValue):
     """Limit/value checks that also carry a ratio (e.g. LOW_SUB_UNIVERSE_SHARPE)."""
     ratio: float
@@ -198,6 +206,7 @@ class AlphaCheckMessage(AlphaCheckBase):
 
 
 AlphaCheck = Union[
+    AlphaCheckAfterCostSharpe,
     AlphaCheckLimitValueRatio,
     AlphaCheckLadder,
     AlphaCheckLimitValue,
@@ -225,13 +234,13 @@ class AlphaPerformanceBlock(BaseModel):
     startDate: Optional[str] = None
 
     def __str__(self) -> str:
-        fitness_str = f"{self.fitness:.4f}" if self.fitness is not None else "None"
+        fitness_str = f"{self.fitness:.2f}" if self.fitness is not None else "None"
         return (
-            f"sharpe={self.sharpe:.4f} fitness={fitness_str} "
-            f"pnl={self.pnl:.4f} bookSize={self.bookSize:.4f} "
+            f"sharpe={self.sharpe:.2f} fitness={fitness_str} "
+            f"pnl={self.pnl:.2f} bookSize={self.bookSize:.2f} "
             f"longCount={self.longCount} shortCount={self.shortCount} "
-            f"turnover={self.turnover:.4f} returns={self.returns:.4f} "
-            f"drawdown={self.drawdown:.4f} margin={self.margin:.4f}"
+            f"turnover={self.turnover * 100:.2f}% returns={self.returns * 100:.2f}% "
+            f"drawdown={self.drawdown * 100:.2f}% margin={self.margin * 100:.2f}%"
         )
 
 
@@ -288,31 +297,31 @@ class AlphaOsMetrics(BaseModel):
     def __str__(self) -> str:
         parts: List[str] = []
         if self.turnover is not None:
-            parts.append(f"turnover={self.turnover:.4f}")
+            parts.append(f"turnover={self.turnover * 100:.2f}%")
         if self.returns is not None:
-            parts.append(f"returns={self.returns:.4f}")
+            parts.append(f"returns={self.returns * 100:.2f}%")
         if self.drawdown is not None:
-            parts.append(f"drawdown={self.drawdown:.4f}")
+            parts.append(f"drawdown={self.drawdown * 100:.2f}%")
         if self.margin is not None:
-            parts.append(f"margin={self.margin:.4f}")
+            parts.append(f"margin={self.margin * 100:.2f}%")
         if self.fitness is not None:
-            parts.append(f"fitness={self.fitness:.4f}")
+            parts.append(f"fitness={self.fitness:.2f}")
         if self.sharpe is not None:
-            parts.append(f"sharpe={self.sharpe:.4f}")
+            parts.append(f"sharpe={self.sharpe:.2f}")
         if self.sharpe60 is not None:
-            parts.append(f"sharpe60={self.sharpe60:.4f}")
+            parts.append(f"sharpe60={self.sharpe60:.2f}")
         if self.sharpe125 is not None:
-            parts.append(f"sharpe125={self.sharpe125:.4f}")
+            parts.append(f"sharpe125={self.sharpe125:.2f}")
         if self.sharpe250 is not None:
-            parts.append(f"sharpe250={self.sharpe250:.4f}")
+            parts.append(f"sharpe250={self.sharpe250:.2f}")
         if self.sharpe500 is not None:
-            parts.append(f"sharpe500={self.sharpe500:.4f}")
+            parts.append(f"sharpe500={self.sharpe500:.2f}")
         if self.preCloseSharpe is not None:
-            parts.append(f"preCloseSharpe={self.preCloseSharpe:.4f}")
+            parts.append(f"preCloseSharpe={self.preCloseSharpe:.2f}")
         if self.osISSharpeRatio is not None:
-            parts.append(f"osISSharpeRatio={self.osISSharpeRatio:.4f}")
+            parts.append(f"osISSharpeRatio={self.osISSharpeRatio:.2f}")
         if self.preCloseSharpeRatio is not None:
-            parts.append(f"preCloseSharpeRatio={self.preCloseSharpeRatio:.4f}")
+            parts.append(f"preCloseSharpeRatio={self.preCloseSharpeRatio:.2f}")
         if self.startDate is not None:
             parts.append(f"startDate={self.startDate}")
         if self.checks:
@@ -384,6 +393,16 @@ class AlphaDetailsResponse(BaseModel):
                     names.append(p.name)
         return names
 
+    def __abbr__(self) -> str:
+        """Compact one-liner: id region universe delay sharpe fitness."""
+        region = self.settings.region.value if self.settings and self.settings.region else "-"
+        universe = self.settings.universe.value if self.settings and self.settings.universe else "-"
+        delay = f"D{self.settings.delay}" if self.settings else "-"
+        sharpe = f"{self.is_.sharpe:.2f}" if self.is_ else "-"
+        fitness = f"{self.is_.fitness:.2f}" if self.is_ and self.is_.fitness is not None else "-"
+        turnover = f"{self.is_.turnover * 100:.2f}%" if self.is_ else "-"
+        return f"{self.id} | {region} {universe} {delay} | sharpe={sharpe} fitness={fitness} turnover={turnover}"
+
     def __str__(self) -> str:
         region = self.settings.region.value if self.settings and self.settings.region else "-"
         lines = [
@@ -396,6 +415,8 @@ class AlphaDetailsResponse(BaseModel):
         # Expression
         if self.regular:
             lines.append(f"expression: {self.regular.code}")
+            if self.regular.description:
+                lines.append(f"description: {self.regular.description}")
         # Settings
         if self.settings:
             s = self.settings
@@ -410,6 +431,36 @@ class AlphaDetailsResponse(BaseModel):
         if self.os is not None:
             lines.append(f"OS: {self.os}")
         return "\n".join(lines)
+
+
+class UserAlphasResponse(BaseModel):
+    count: int
+    next: Optional[str] = None
+    previous: Optional[str] = None
+    results: List[AlphaDetailsResponse] = Field(default_factory=list)
+
+    @functools.cached_property
+    def rows(self) -> List[Dict[str, Any]]:
+        return expand_nested_data([a.model_dump(by_alias=True) for a in self.results])
+
+    def save_csv(self, path: pathlib.Path) -> pathlib.Path:
+        save_flat_csv(self.rows, path)
+        return path
+
+    def summary(self, top_n: int = 3) -> str:
+        header = f"alphas: {self.count} total | showing {len(self.results)}"
+        if not self.results:
+            return header
+        lines = [header, ""]
+        for a in self.results[:top_n]:
+            lines.append(a.__abbr__())
+        remaining = len(self.results) - top_n
+        if remaining > 0:
+            lines.append(f"... and {remaining} more (see CSV)")
+        return "\n".join(lines)
+
+    def __str__(self) -> str:
+        return self.summary()
 
 
 class SubmitAlphaResponse(BaseModel):
@@ -489,6 +540,34 @@ class AlphaCheckResponse(BaseModel):
             if isinstance(c, AlphaCheckThemes) and c.result == "PASS":
                 themes = ", ".join(f"{t.name}(x{t.multiplier})" for t in c.themes)
                 lines.append(f"  [THEMES] {themes}")
+        # Hint: if description issues are causing failures
+        _DESC_CHECKS = {"POWER_POOL_DESCRIPTION_LENGTH", "POWER_POOL_DESCRIPTION_FORMAT"}
+        desc_issues = [
+            name for name in self.failed_checks + self.warning_checks
+            if any(dc in name for dc in _DESC_CHECKS)
+        ]
+        if desc_issues:
+            hint_lines = [
+                "  [HINT] Power Pool description must follow this format "
+                "(total >= 100 chars):",
+                "    Idea: <your idea>",
+                "    Rationale for data used: <why this data>",
+                "    Rationale for operators used: <why these operators>",
+                "  Use set_alpha_properties(alpha_id, regular_desc=...) to fix.",
+            ]
+            # Check if there are Sharpe/Fitness failures that might be due to description
+            sharpe_fitness_fails = [
+                f for f in self.failed_checks
+                if any(x in f for x in ["LOW_SHARPE", "LOW_FITNESS", "LOW_2Y_SHARPE"])
+            ]
+            if sharpe_fitness_fails:
+                hint_lines.append(
+                    "  NOTE: LOW_SHARPE/LOW_FITNESS failures may be caused by missing "
+                    "description. Power Pool threshold is 1.0, but without proper "
+                    "description the alpha is evaluated as regular (threshold 1.58). "
+                    "Fix the description first, then re-check."
+                )
+            lines.append("\n".join(hint_lines))
         return "\n".join(lines)
 
 
@@ -685,6 +764,9 @@ class AlphaMixin:
             regular=AlphaRegularPatch(description=regular_desc) if regular_desc is not None else None,
         )
         data = payload.model_dump(exclude_none=True)
+        # Empty string means "clear description" — send null to API
+        if regular_desc is not None and not regular_desc.strip():
+            data.setdefault("regular", {})["description"] = None
 
         response = self.session.patch(f"{self.base_url}/alphas/{alpha_id}", json=data)
         response.raise_for_status()
@@ -704,3 +786,61 @@ class AlphaMixin:
             return {"available": False, "detail": data.get("detail", "Not found.")}
         response.raise_for_status()
         return parse_json_or_error(response, f"/alphas/{alpha_id}/performance-comparison")
+
+    async def get_user_alphas(
+        self,
+        stage: str = "OS",
+        limit: int = 30,
+        offset: int = 0,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        submission_start_date: Optional[str] = None,
+        submission_end_date: Optional[str] = None,
+        order: Optional[str] = None,
+        hidden: Optional[bool] = None,
+        sharpe_min: Optional[float] = None,
+        sharpe_max: Optional[float] = None,
+        fitness_min: Optional[float] = None,
+        fitness_max: Optional[float] = None,
+        tag: Optional[str] = None,
+        extra_filters: Optional[Dict[str, Any]] = None,
+    ) -> UserAlphasResponse:
+        """Get user's alphas with advanced filtering.
+
+        Named params cover common filters; use ``extra_filters`` for any
+        additional query-string key/value pairs the platform accepts.
+
+        Example extra_filters: {"is.longCount>": 9, "settings.decay>": 5,
+                                 "dateSubmitted>": "2024-01-01T00:00:00Z"}
+        """
+        await self.ensure_authenticated()
+
+        params: Dict[str, Any] = {"stage": stage, "limit": limit, "offset": offset}
+        if start_date:
+            params["dateCreated>"] = start_date
+        if end_date:
+            params["dateCreated<"] = end_date
+        if submission_start_date:
+            params["dateSubmitted>"] = submission_start_date
+        if submission_end_date:
+            params["dateSubmitted<"] = submission_end_date
+        if order:
+            params["order"] = order
+        if hidden is not None:
+            params["hidden"] = str(hidden).lower()
+        if sharpe_min is not None:
+            params["is.sharpe>"] = sharpe_min
+        if sharpe_max is not None:
+            params["is.sharpe<"] = sharpe_max
+        if fitness_min is not None:
+            params["is.fitness>"] = fitness_min
+        if fitness_max is not None:
+            params["is.fitness<"] = fitness_max
+        if tag:
+            params["tag"] = tag
+        if extra_filters:
+            params.update(extra_filters)
+
+        response = self.session.get(f"{self.base_url}/users/self/alphas", params=params)
+        response.raise_for_status()
+        return UserAlphasResponse.model_validate(parse_json_or_error(response, "/users/self/alphas"))
