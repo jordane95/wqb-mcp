@@ -9,6 +9,7 @@ from .simulation import SimulationMixin
 from .alpha import AlphaMixin
 from .alpha_recordsets import AlphaRecordsetsMixin
 from .correlation import CorrelationMixin
+from .local_correlation import LocalCorrelationMixin
 from .data import DataMixin
 from .community import CommunityMixin
 from .user import UserMixin
@@ -22,6 +23,7 @@ class BrainApiClient(
     AlphaRecordsetsMixin,
     AlphaMixin,
     CorrelationMixin,
+    LocalCorrelationMixin,
     DataMixin,
     CommunityMixin,
     UserMixin,

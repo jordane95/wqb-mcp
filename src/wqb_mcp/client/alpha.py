@@ -362,6 +362,7 @@ class AlphaDetailsResponse(BaseModel):
     team: Optional[Dict[str, Any]] = None
     osmosisPoints: Optional[float] = None
 
+    @property
     def is_atom(self) -> bool:
         """Detect atom-like alphas from classifications/tags."""
         for c in self.classifications or []:
@@ -379,6 +380,12 @@ class AlphaDetailsResponse(BaseModel):
                 return True
         return False
 
+    @property
+    def is_power_pool(self) -> bool:
+        """Check if this alpha is a Power Pool Alpha."""
+        return any(c.name == "Power Pool Alpha" for c in self.classifications)
+
+    @property
     def pyramid_names(self) -> List[str]:
         """Extract pyramid names from either pyramids or pyramidThemes."""
         names: List[str] = []

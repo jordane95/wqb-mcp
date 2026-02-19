@@ -2,9 +2,9 @@
 
 import asyncio
 from enum import Enum
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from ..utils import parse_json_or_error
 
 
@@ -14,10 +14,32 @@ class CorrelationType(str, Enum):
     POWER_POOL = "power-pool"
 
 
-class CorrelatedAlpha(BaseModel):
-    """Represents a single correlated alpha."""
-    alpha_id: str
+class SelfCorrelationRecord(BaseModel):
+    """A single per-alpha row from self/power-pool correlation.
+
+    Field names match the API schema property names.
+    """
+    id: str
+    name: Optional[str] = None
+    instrumentType: Optional[str] = None
+    region: Optional[str] = None
+    universe: Optional[str] = None
     correlation: float
+    sharpe: Optional[float] = None
+    returns: Optional[float] = None
+    turnover: Optional[float] = None
+    fitness: Optional[float] = None
+    margin: Optional[float] = None
+
+
+class ProdCorrelationRecord(BaseModel):
+    """A single histogram bucket from prod correlation.
+
+    Field names match the API schema property names.
+    """
+    min: float
+    max: float
+    alphas: int
 
 
 class SchemaProperty(BaseModel):
@@ -26,10 +48,21 @@ class SchemaProperty(BaseModel):
     type: str
 
 
+class CorrelationSchemaName(str, Enum):
+    SELF = "selfCorrelation"
+    PROD = "prodCorrelation"
+
+
 class CorrelationSchema(BaseModel):
-    name: str
+    name: CorrelationSchemaName
     title: str
     properties: List[SchemaProperty] = []
+
+
+_RECORD_MODEL = {
+    CorrelationSchemaName.SELF: SelfCorrelationRecord,
+    CorrelationSchemaName.PROD: ProdCorrelationRecord,
+}
 
 
 class CorrelationData(BaseModel):
@@ -39,7 +72,29 @@ class CorrelationData(BaseModel):
     schema_: Optional[CorrelationSchema] = Field(None, alias="schema")
     max: Optional[float] = None
     min: Optional[float] = None
-    records: List[List[Union[float, str, int, None]]] = []
+    records: List = []
+    parsed_records: List = Field(default_factory=list, exclude=True)
+
+    @model_validator(mode="after")
+    def _parse_records(self) -> "CorrelationData":
+        if not self.schema_ or not self.schema_.properties or not self.records:
+            return self
+        model_cls = _RECORD_MODEL[self.schema_.name]
+        props = [p.name for p in self.schema_.properties]
+        n = len(props)
+        for r in self.records:
+            assert isinstance(r, list) and len(r) == n, (
+                f"Expected record of length {n}, got {len(r) if isinstance(r, list) else type(r)}"
+            )
+        self.parsed_records = [
+            model_cls.model_validate(dict(zip(props, r)))
+            for r in self.records
+        ]
+        return self
+
+    @property
+    def is_self_type(self) -> bool:
+        return self.schema_ is not None and self.schema_.name == CorrelationSchemaName.SELF
 
 
 class CorrelationCheckResult(BaseModel):
@@ -47,7 +102,7 @@ class CorrelationCheckResult(BaseModel):
     max_correlation: Optional[float] = None
     passes_check: bool
     count: Optional[int] = None
-    top_correlations: Optional[List[CorrelatedAlpha]] = None
+    top_correlations: Optional[List[SelfCorrelationRecord]] = None
 
     def __str__(self) -> str:
         status = "PASS" if self.passes_check else "FAIL"
@@ -58,7 +113,7 @@ class CorrelationCheckResult(BaseModel):
         if self.count is not None:
             parts.append(f"{self.count} correlated")
         if self.top_correlations:
-            top = ", ".join(f"{a.alpha_id}({a.correlation})" for a in self.top_correlations)
+            top = ", ".join(f"{a.id}({a.correlation})" for a in self.top_correlations)
             parts.append(f"top: {top}")
         return " | ".join(parts)
 
@@ -136,7 +191,7 @@ class CorrelationMixin:
                     continue
 
                 self.log(f"Successfully retrieved {corr_type.value} correlation for alpha {alpha_id}", "SUCCESS")
-                return CorrelationData(**data)
+                return CorrelationData.model_validate(data)
 
             except Exception as e:
                 last_error = e
@@ -159,7 +214,7 @@ class CorrelationMixin:
         all_passed = True
 
         for check_type in check_types:
-            corr_data = await self._fetch_correlation(alpha_id, check_type)
+            corr_data : CorrelationData = await self._fetch_correlation(alpha_id, check_type)
 
             if corr_data.max is None:
                 # No correlated alphas (e.g. alpha not yet submitted) — auto-pass
@@ -175,18 +230,10 @@ class CorrelationMixin:
             top_correlations = None
 
             # Only extract count and top correlated alphas from self/powerpool (not prod histogram)
-            is_self_type = corr_data.schema_ and corr_data.schema_.name == "selfCorrelation"
-            if is_self_type and corr_data.records:
-                count = len(corr_data.records)
-                top_corr_list = []
-                for record in corr_data.records[:3]:
-                    if len(record) >= 6:
-                        top_corr_list.append(CorrelatedAlpha(
-                            alpha_id=record[0],
-                            correlation=record[5]
-                        ))
-                if top_corr_list:
-                    top_correlations = top_corr_list
+            if corr_data.is_self_type and corr_data.parsed_records:
+                count = len(corr_data.parsed_records)
+                if corr_data.parsed_records[:3]:
+                    top_correlations = corr_data.parsed_records[:3]
 
             checks_dict[check_type] = CorrelationCheckResult(
                 max_correlation=max_correlation,
@@ -233,7 +280,7 @@ class CorrelationMixin:
 
                 # Get the most correlated PP alpha's Sharpe
                 if pp_check.top_correlations and current_sharpe is not None:
-                    most_correlated_id = pp_check.top_correlations[0].alpha_id
+                    most_correlated_id = pp_check.top_correlations[0].id
                     correlated_alpha = await self.get_alpha_details(most_correlated_id)
                     correlated_sharpe = correlated_alpha.is_.sharpe if correlated_alpha.is_ else None
 

@@ -380,10 +380,10 @@ class UserMixin:
             except Exception:
                 continue
 
-            if detail.is_atom():
+            if detail.is_atom:
                 atom_count += 1
 
-            for p in detail.pyramid_names():
+            for p in detail.pyramid_names:
                 per_pyramid[p] = per_pyramid.get(p, 0) + 1
 
         N = len(regular)

@@ -55,6 +55,7 @@ class DataFieldType(str, Enum):
     MATRIX = "MATRIX"
     VECTOR = "VECTOR"
     GROUP = "GROUP"
+    SYMBOL = "SYMBOL"
 
 
 class DataIdNameRef(BaseModel):

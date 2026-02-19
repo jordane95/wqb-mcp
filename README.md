@@ -5,6 +5,7 @@ Minimal MCP server for WorldQuant BRAIN platform integration with Claude Code.
 ## Features
 
 - Complete BRAIN platform API integration (alphas, simulations, data)
+- Local correlation checks (self & power-pool) with on-disk caching
 - Forum access (glossary, search, posts)
 - Biometric authentication support
 - Browser automation for complex workflows
