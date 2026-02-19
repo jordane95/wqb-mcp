@@ -46,6 +46,7 @@ class SimulationErrorLocation(BaseModel):
     start: Optional[int] = None
     end: Optional[int] = None
     property: Optional[str] = None
+    type: Optional[str] = None
 
 
 class SimulationSnapshot(BaseModel):
@@ -253,7 +254,7 @@ class SimulationMixin:
         raise RuntimeError(f"Simulation error payload: {snapshot}")
 
     async def create_simulation(self, simulation_data: SimulationData) -> SimulationCreateResponse:
-        """Submit a simulation and poll once for immediate status snapshot."""
+        """Submit a simulation and do a short poll (min 2, max 3) to catch early errors."""
         await self.ensure_authenticated()
         payload = self._build_simulation_payload(simulation_data)
         response = self.session.post(f"{self.base_url}/simulations", json=payload)
@@ -266,14 +267,25 @@ class SimulationMixin:
         simulation_id = location.rstrip("/").split("/")[-1]
         self.log(f"Simulation submitted: {simulation_id}", "SUCCESS")
 
-        simulation_progress = self.session.get(location)
-        self._raise_http_error_with_payload(simulation_progress, "/simulations/{id}")
-        snapshot_raw = parse_json_or_error(simulation_progress, "/simulations/{id}")
-        snapshot = SimulationSnapshot.model_validate(snapshot_raw)
-        self._raise_simulation_error_if_any(snapshot)
+        snapshot = SimulationSnapshot()
+        retry_after: Optional[str] = None
+        done = False
+        min_polls = 2
+        max_polls = 3
+        for poll_index in range(1, max_polls + 1):
+            simulation_progress = self.session.get(location)
+            self._raise_http_error_with_payload(simulation_progress, "/simulations/{id}")
+            snapshot_raw = parse_json_or_error(simulation_progress, "/simulations/{id}")
+            snapshot = SimulationSnapshot.model_validate(snapshot_raw)
+            self._raise_simulation_error_if_any(snapshot)
 
-        retry_after = simulation_progress.headers.get("Retry-After")
-        done = retry_after in (None, "0", "0.0")
+            retry_after = simulation_progress.headers.get("Retry-After")
+            done = retry_after in (None, "0", "0.0")
+            if poll_index >= min_polls and done:
+                break
+            if poll_index < min_polls:
+                await async_sleep(float(retry_after or 1))
+
         return SimulationCreateResponse(
             simulation_id=simulation_id,
             location=location,
