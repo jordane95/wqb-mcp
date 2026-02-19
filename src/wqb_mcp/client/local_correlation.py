@@ -193,10 +193,16 @@ class AlphaCache:
         self,
         alpha_id: str,
         daily_returns: pd.DataFrame,
+        alpha_details: Optional["AlphaDetailsResponse"] = None,
     ) -> None:
-        """Persist one alpha's daily-pnl parquet."""
+        """Persist one alpha's daily-pnl parquet and optional meta.json."""
         alpha_path = self._alpha_dir(alpha_id)
         self._write_parquet(alpha_path / "daily-pnl.parquet", daily_returns)
+        if alpha_details is not None:
+            self._write_json(
+                alpha_path / "meta.json",
+                alpha_details.model_dump(by_alias=True),
+            )
 
     def load_daily_returns(self, alpha_ids: List[str]) -> pd.DataFrame:
         """Load daily-pnl parquet files for *alpha_ids* into a single wide DataFrame."""
@@ -392,7 +398,7 @@ class LocalCorrelationMixin:
 
     # -- baseline sync ------------------------------------------------------
 
-    async def _sync_baseline(self, cache: AlphaCache) -> Dict:
+    async def _sync_baseline(self, cache: AlphaCache, force_refresh: bool = False) -> Dict:
         """Ensure OS baseline cache is up-to-date. Returns the live index dict."""
         loaded = cache.load_index()
         cached_ids = set(loaded["alphas"]) if loaded else set()
@@ -415,15 +421,18 @@ class LocalCorrelationMixin:
                     shutil.rmtree(alpha_dir, ignore_errors=True)
             self.log(f"Removed {len(stale_ids)} stale alphas from cache", "INFO")
 
-        # Download new alphas
-        new_alphas = [a for a in os_alphas if a.id not in cached_ids]
-        if not new_alphas and not stale_ids:
+        # Download new alphas (or all if force_refresh)
+        if force_refresh:
+            alphas_to_sync = os_alphas
+        else:
+            alphas_to_sync = [a for a in os_alphas if a.id not in cached_ids]
+        if not alphas_to_sync and not stale_ids:
             if loaded is None:
                 self.log("No OS alpha data available", "WARNING")
             return cache.index
 
         synced = 0
-        for alpha in new_alphas:
+        for alpha in alphas_to_sync:
             try:
                 settings = alpha.settings
                 is_stats = alpha.is_
@@ -441,7 +450,7 @@ class LocalCorrelationMixin:
                 )
                 daily_returns = await self._fetch_daily_returns(alpha.id)
                 cache.save_alpha(
-                    alpha.id, daily_returns,
+                    alpha.id, daily_returns, alpha_details=alpha,
                 )
                 cache.register_alpha(alpha.id, entry)
                 synced += 1
@@ -451,7 +460,9 @@ class LocalCorrelationMixin:
         if synced > 0 or stale_ids:
             cache.save_index()
         self.log(
-            f"Synced {synced}/{len(new_alphas)} new, removed {len(stale_ids)} stale, "
+            f"Synced {synced}/{len(alphas_to_sync)} alphas"
+            f"{' (force refresh)' if force_refresh else ''}, "
+            f"removed {len(stale_ids)} stale, "
             f"total: {len(cache.index['alphas'])}",
             "INFO",
         )
@@ -514,6 +525,7 @@ class LocalCorrelationMixin:
         check_types: Optional[List[CorrelationType]] = None,
         threshold: float = 0.7,
         years: int = 4,
+        force_refresh: bool = False,
     ) -> CorrelationCheckResponse:
         """Local equivalent of ``CorrelationMixin.check_correlation``.
 
@@ -533,7 +545,7 @@ class LocalCorrelationMixin:
             )
 
         cache = AlphaCache()
-        await self._sync_baseline(cache)
+        await self._sync_baseline(cache, force_refresh=force_refresh)
 
         candidate_returns, alpha_detail = await asyncio.gather(
             self._fetch_daily_returns(alpha_id),

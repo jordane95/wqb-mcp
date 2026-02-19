@@ -14,6 +14,7 @@ async def check_correlation(
     threshold: float = 0.7,
     mode: Literal["remote", "local"] = "remote",
     years: int = 4,
+    force_refresh: bool = False,
 ):
     """Check alpha correlation against production alphas, self alphas, or both.
 
@@ -23,6 +24,7 @@ async def check_correlation(
         threshold: Correlation threshold (default 0.7). Alpha passes if max correlation is below this.
         mode: "remote" (BRAIN API correlation endpoint) or "local" (PnL-based local computation).
         years: Trailing years of returns used only when mode="local".
+        force_refresh: Re-download all OS alpha details and PnL data (mode="local" only).
     """
     if correlation_type == "both":
         check_types = [CorrelationType.PROD, CorrelationType.SELF]
@@ -37,6 +39,7 @@ async def check_correlation(
             check_types=check_types,
             threshold=threshold,
             years=years,
+            force_refresh=force_refresh,
         )
     else:
         result = await brain_client.check_correlation(alpha_id, check_types, threshold)
