@@ -56,6 +56,7 @@ class DataFieldType(str, Enum):
     VECTOR = "VECTOR"
     GROUP = "GROUP"
     SYMBOL = "SYMBOL"
+    UNIVERSE = "UNIVERSE"
 
 
 class DataIdNameRef(BaseModel):
@@ -151,9 +152,26 @@ class DataFieldsQuery(BaseModel):
 class DataMixin:
     """Handles datasets and datafields."""
 
+    @staticmethod
+    def _data_cache_key_prefix(instrument_type: str, region: str, universe: str, delay: int) -> str:
+        return f"data:{instrument_type}:{region}:{universe}:D{delay}"
+
+    @staticmethod
+    def _data_file_prefix(instrument_type: str, region: str, universe: str, delay: int) -> str:
+        return f"data/{instrument_type}/{region}/{universe}/D{delay}"
+
     async def get_datasets(self, instrument_type: str = "EQUITY", region: str = "USA",
-                          delay: int = 1, universe: str = "TOP3000", theme: str = "false", search: Optional[str] = None) -> DataDatasetsResponse:
+                          delay: int = 1, universe: str = "TOP3000", theme: str = "false",
+                          search: Optional[str] = None, force_refresh: bool = False) -> DataDatasetsResponse:
         """Get available datasets."""
+        cache_key = f"{self._data_cache_key_prefix(instrument_type, region, universe, delay)}:datasets"
+        file_subpath = f"{self._data_file_prefix(instrument_type, region, universe, delay)}/datasets.csv"
+
+        if not search and not force_refresh:
+            rows = self._static_cache.read_table(cache_key)
+            if rows is not None:
+                return DataDatasetsResponse(count=len(rows), results=[DataDatasetItem.model_validate(r) for r in rows])
+
         await self.ensure_authenticated()
 
         query = DataSetsQuery(
@@ -167,13 +185,38 @@ class DataMixin:
 
         response = self.session.get(f"{self.base_url}/data-sets", params=query.to_params())
         response.raise_for_status()
-        return DataDatasetsResponse.model_validate(parse_json_or_error(response, "/data-sets"))
+        result = DataDatasetsResponse.model_validate(parse_json_or_error(response, "/data-sets"))
+
+        if not search:
+            self._static_cache.write_table(
+                cache_key,
+                [item.model_dump(mode="json") for item in result.results],
+                ttl_days=7,
+                file_subpath=file_subpath,
+            )
+        return result
 
     async def get_datafields(self, instrument_type: str = "EQUITY", region: str = "USA",
                             delay: int = 1, universe: str = "TOP3000", theme: str = "false",
                             dataset_id: Optional[str] = None, data_type: str = "ALL",
-                            search: Optional[str] = None) -> DataFieldsResponse:
+                            search: Optional[str] = None, force_refresh: bool = False) -> DataFieldsResponse:
         """Get available data fields, automatically paginating to fetch all results."""
+        prefix = self._data_cache_key_prefix(instrument_type, region, universe, delay)
+        file_prefix = self._data_file_prefix(instrument_type, region, universe, delay)
+
+        if dataset_id:
+            safe_id = dataset_id.replace(" ", "_")
+            cache_key = f"{prefix}:datafields:{safe_id}"
+            file_subpath = f"{file_prefix}/dataset/{safe_id}/datafields.csv"
+        else:
+            cache_key = f"{prefix}:datafields"
+            file_subpath = f"{file_prefix}/datafields.csv"
+
+        if not search and not force_refresh:
+            rows = self._static_cache.read_table(cache_key)
+            if rows is not None:
+                return DataFieldsResponse(count=len(rows), results=[DataFieldItem.model_validate(r) for r in rows])
+
         await self.ensure_authenticated()
 
         page_size = 50
@@ -212,4 +255,13 @@ class DataMixin:
         assert len(all_results) == total_count, (
             f"Pagination mismatch: fetched {len(all_results)} but API reported {total_count}"
         )
-        return DataFieldsResponse(count=total_count or 0, results=all_results)
+        result = DataFieldsResponse(count=total_count or 0, results=all_results)
+
+        if not search:
+            self._static_cache.write_table(
+                cache_key,
+                [item.model_dump(mode="json") for item in result.results],
+                ttl_days=7,
+                file_subpath=file_subpath,
+            )
+        return result

@@ -1,10 +1,12 @@
 """Simulation MCP tools."""
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import mcp
 from ..client import brain_client
 from ..client.simulation import SimulationData, SimulationSettings
+from ..utils import save_csv
 
 
 @mcp.tool()
@@ -67,7 +69,11 @@ async def create_simulation(
 
 
 @mcp.tool()
-async def wait_for_simulation(location_or_id: str, max_polls: int = 200):
+async def wait_for_simulation(
+    location_or_id: str,
+    max_polls: int = 200,
+    output_path: Optional[str] = None,
+):
     """Poll a simulation until completion or error. Returns alpha details on success."""
     result = await brain_client.wait_for_simulation(location_or_id, max_polls)
     if not result.done:
@@ -78,7 +84,19 @@ async def wait_for_simulation(location_or_id: str, max_polls: int = 200):
         return str(result)
 
     details = await brain_client.get_alpha_details(alpha_id)
-    return str(details)
+    text = str(details)
+
+    target = Path(output_path) if output_path else Path("output") / "simulations" / f"{location_or_id}.csv"
+    rows = [details.model_dump(by_alias=True)]
+    col_count = save_csv(rows, target)
+    text += (
+        f"\n\nSaved simulation result CSV\n"
+        f"- path: `{target}`\n"
+        f"- rows: `{len(rows)}`\n"
+        f"- columns: `{col_count}`"
+    )
+
+    return text
 
 
 @mcp.tool()
@@ -101,7 +119,7 @@ async def create_multi_simulation(
     settings: Optional[List[Dict[str, Any]]] = None,
 ):
     """
-    Batch-submit regular alpha simulations. Modes:
+    Batch-submit regular alpha simulations (minimum 2, maximum 8 expressions). Modes:
     - N expressions × 1 shared setting (settings=None)
     - N expressions × N settings (zipped 1:1)
     - 1 expression × M settings (broadcast)
@@ -172,6 +190,7 @@ async def wait_for_multi_simulation(
     location_or_id: str,
     max_parent_polls: int = 200,
     max_child_polls: int = 200,
+    output_path: Optional[str] = None,
 ):
     """Poll a multi-simulation parent and each child until terminal state."""
     result = await brain_client.wait_for_multi_simulation(
@@ -188,6 +207,7 @@ async def wait_for_multi_simulation(
         f"multi-simulation: {result.multi_id} | requested={result.requested} | "
         f"children={result.children_total} | complete={result.children_completed} | status={summary}"
     ]
+    all_details_dicts: List[Dict[str, Any]] = []
     for idx, child in enumerate(result.results, start=1):
         if child.status != "COMPLETE" or not child.alpha_id:
             if child.message:
@@ -202,5 +222,18 @@ async def wait_for_multi_simulation(
         details = await brain_client.get_alpha_details(child.alpha_id)
         lines.append(f"--- child {idx} simulation_id={child.child_id} complete ---")
         lines.append(str(details))
+        all_details_dicts.append(details.model_dump(by_alias=True))
 
-    return "\n".join(lines)
+    text = "\n".join(lines)
+
+    if all_details_dicts:
+        target = Path(output_path) if output_path else Path("output") / "simulations" / f"{result.multi_id}.csv"
+        col_count = save_csv(all_details_dicts, target)
+        text += (
+            f"\n\nSaved simulation results CSV\n"
+            f"- path: `{target}`\n"
+            f"- rows: `{len(all_details_dicts)}`\n"
+            f"- columns: `{col_count}`"
+        )
+
+    return text

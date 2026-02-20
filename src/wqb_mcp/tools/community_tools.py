@@ -50,12 +50,12 @@ async def get_competition_agreement(competition_id: str):
 
 
 @mcp.tool()
-async def get_documentations():
+async def get_documentations(force_refresh: bool = False):
     """Get available documentations and learning materials."""
-    return str(await brain_client.get_documentations())
+    return str(await brain_client.get_documentations(force_refresh=force_refresh))
 
 
 @mcp.tool()
-async def get_documentation_page(page_id: str):
+async def get_documentation_page(page_id: str, force_refresh: bool = False):
     """Retrieve detailed content of a specific documentation page/article."""
-    return str(await brain_client.get_documentation_page(page_id))
+    return str(await brain_client.get_documentation_page(page_id, force_refresh=force_refresh))

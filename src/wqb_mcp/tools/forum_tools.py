@@ -5,13 +5,15 @@ from typing import Optional
 
 from . import mcp
 from ..forum import forum_scraper
+from ..client import brain_client
 from ..config import load_credentials
-from ..utils import expand_nested_data, save_flat_csv
+from ..utils import save_csv
 
 
 @mcp.tool()
 async def get_glossary_terms(email: str = "", password: str = "",
-                             output_path: Optional[str] = None):
+                             output_path: Optional[str] = None,
+                             force_refresh: bool = False):
     """
     Get glossary terms from WorldQuant BRAIN forum.
 
@@ -24,6 +26,22 @@ async def get_glossary_terms(email: str = "", password: str = "",
     Returns:
         A list of glossary terms with definitions
     """
+    cache_key = "glossary"
+    cache = brain_client._static_cache
+
+    if not force_refresh:
+        cached = cache.read_dict(cache_key)
+        if cached is not None:
+            rows = cached.get("terms", [])
+            target = Path(output_path) if output_path else Path("assets") / "forum" / "glossary.csv"
+            col_count = save_csv(rows, target)
+            return (
+                "Saved glossary CSV (from cache)\n"
+                f"- path: `{target}`\n"
+                f"- rows: `{len(rows)}`\n"
+                f"- columns: `{col_count}`"
+            )
+
     stored_email, stored_password = load_credentials()
     email = email or stored_email
     password = password or stored_password
@@ -32,7 +50,15 @@ async def get_glossary_terms(email: str = "", password: str = "",
     response = await forum_scraper.get_glossary_terms(email, password)
     rows = [t.model_dump() for t in response.terms]
     target = Path(output_path) if output_path else Path("assets") / "forum" / "glossary.csv"
-    col_count = save_flat_csv(rows, target)
+    col_count = save_csv(rows, target)
+
+    cache.write_dict(
+        cache_key,
+        {"terms": rows},
+        ttl_days=30,
+        file_subpath="glossary/glossary.json",
+    )
+
     return (
         "Saved glossary CSV\n"
         f"- path: `{target}`\n"
@@ -66,14 +92,14 @@ async def search_forum_posts(search_query: str, email: str = "", password: str =
         raise ValueError("Authentication credentials not provided or found in config.")
 
     response = await forum_scraper.search_forum_posts(email, password, search_query, max_results)
-    rows = expand_nested_data([r.model_dump() for r in response.results], preserve_original=True)
+    rows = [r.model_dump() for r in response.results]
     safe_query = search_query.replace(" ", "_").lower()[:50]
     target = (
         Path(output_path)
         if output_path
         else Path("assets") / "forum" / f"search_{safe_query}.csv"
     )
-    col_count = save_flat_csv(rows, target)
+    col_count = save_csv(rows, target)
     return (
         "Saved forum search CSV\n"
         f"- path: `{target}`\n"
@@ -116,7 +142,7 @@ async def read_forum_post(article_id: str, email: str = "", password: str = "",
         rows.append({"type": "comment", "author": c.author, "date": c.date,
                       "title": "", "body": c.body, "votes": ""})
     target = Path(output_path) if output_path else Path("assets") / "forum" / f"post_{article_id}.csv"
-    col_count = save_flat_csv(rows, target)
+    col_count = save_csv(rows, target)
     return (
         "Saved forum post CSV\n"
         f"- path: `{target}`\n"

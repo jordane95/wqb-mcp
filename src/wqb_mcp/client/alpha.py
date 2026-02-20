@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, TypeAdapter, model_validator
 import functools
 import pathlib
 
-from ..utils import expand_nested_data, parse_json_or_error, save_flat_csv
+from ..utils import parse_json_or_error, save_csv
 
 
 class AlphaRegion(str, Enum):
@@ -433,6 +433,18 @@ class AlphaDetailsResponse(BaseModel):
                 f"instrumentType={s.instrumentType} nanHandling={s.nanHandling} "
                 f"pasteurization={s.pasteurization}"
             )
+        # Classifications
+        if self.classifications:
+            cls_names = ", ".join(c.name or c.id or "?" for c in self.classifications)
+            lines.append(f"classifications: {cls_names}")
+        # Themes
+        if self.themes:
+            theme_strs = ", ".join(f"{t.name}(x{t.multiplier})" for t in self.themes)
+            lines.append(f"themes: {theme_strs}")
+        # Pyramids
+        pyr_names = self.pyramid_names
+        if pyr_names:
+            lines.append(f"pyramids: {', '.join(pyr_names)}")
         if self.is_ is not None:
             lines.append(f"IS: {self.is_}")
         if self.os is not None:
@@ -448,10 +460,10 @@ class UserAlphasResponse(BaseModel):
 
     @functools.cached_property
     def rows(self) -> List[Dict[str, Any]]:
-        return expand_nested_data([a.model_dump(by_alias=True) for a in self.results])
+        return [a.model_dump(by_alias=True) for a in self.results]
 
     def save_csv(self, path: pathlib.Path) -> pathlib.Path:
-        save_flat_csv(self.rows, path)
+        save_csv(self.rows, path)
         return path
 
     def summary(self, top_n: int = 3) -> str:
@@ -539,14 +551,17 @@ class AlphaCheckResponse(BaseModel):
             lines.append(f"  [FAIL] {f}")
         for w in self.warning_checks:
             lines.append(f"  [WARNING] {w}")
-        # Show pyramid/theme info from PASS checks
+        # Show pyramid/theme info
         for c in self.checks:
-            if isinstance(c, AlphaCheckPyramids) and c.result == "PASS":
+            if isinstance(c, AlphaCheckPyramids) and c.result in ("PASS", "WARNING"):
                 pyrs = ", ".join(f"{p.name}(x{p.multiplier})" for p in c.pyramids)
                 lines.append(f"  [PYRAMID] effective={c.effective} multiplier={c.multiplier} | {pyrs}")
-            if isinstance(c, AlphaCheckThemes) and c.result == "PASS":
+            if isinstance(c, AlphaCheckThemes):
                 themes = ", ".join(f"{t.name}(x{t.multiplier})" for t in c.themes)
-                lines.append(f"  [THEMES] {themes}")
+                if c.result == "PASS":
+                    lines.append(f"  [THEME] PASS: {themes} (multiplier={c.multiplier})")
+                elif c.result == "WARNING":
+                    lines.append(f"  [THEME] WARNING: {themes}")
         # Hint: if description issues are causing failures
         _DESC_CHECKS = {"POWER_POOL_DESCRIPTION_LENGTH", "POWER_POOL_DESCRIPTION_FORMAT"}
         desc_issues = [

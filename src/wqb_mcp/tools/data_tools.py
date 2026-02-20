@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 from . import mcp
 from ..client import brain_client
-from ..utils import expand_nested_data, save_flat_csv
+from ..utils import save_csv
 
 
 @mcp.tool()
@@ -16,6 +16,7 @@ async def get_datasets(
     theme: str = "false",
     search: Optional[str] = None,
     output_path: Optional[str] = None,
+    force_refresh: bool = False,
 ):
     """
     Get available datasets for research.
@@ -32,14 +33,16 @@ async def get_datasets(
     Returns:
         Markdown summary with saved CSV path
     """
-    response = await brain_client.get_datasets(instrument_type, region, delay, universe, theme, search)
-    rows = expand_nested_data(response.model_dump().get("results", []), preserve_original=True)
+    response = await brain_client.get_datasets(
+        instrument_type, region, delay, universe, theme, search, force_refresh=force_refresh
+    )
+    rows = [item.model_dump(mode="json", exclude_none=True) for item in response.results]
     target = (
         Path(output_path)
         if output_path
         else Path("assets") / "data" / f"datasets_{region.lower()}_{universe.lower()}.csv"
     )
-    col_count = save_flat_csv(rows, target)
+    col_count = save_csv(rows, target)
     return (
         "Saved datasets CSV\n"
         f"- path: `{target}`\n"
@@ -61,6 +64,7 @@ async def get_datafields(
     data_type: str = "ALL",
     search: Optional[str] = None,
     output_path: Optional[str] = None,
+    force_refresh: bool = False,
 ):
     """
     Get available data fields for alpha construction.
@@ -81,15 +85,16 @@ async def get_datafields(
         Markdown summary with saved CSV path
     """
     response = await brain_client.get_datafields(
-        instrument_type, region, delay, universe, theme, dataset_id, data_type, search
+        instrument_type, region, delay, universe, theme, dataset_id, data_type, search,
+        force_refresh=force_refresh,
     )
-    rows = expand_nested_data(response.model_dump().get("results", []), preserve_original=True)
+    rows = [item.model_dump(mode="json", exclude_none=True) for item in response.results]
     target = (
         Path(output_path)
         if output_path
         else Path("assets") / "data" / f"datafields_{region.lower()}_{universe.lower()}_{data_type.lower()}.csv"
     )
-    col_count = save_flat_csv(rows, target)
+    col_count = save_csv(rows, target)
     return (
         "Saved datafields CSV\n"
         f"- path: `{target}`\n"

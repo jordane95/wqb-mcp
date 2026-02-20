@@ -1,5 +1,6 @@
 """Alpha MCP tools."""
 
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -8,17 +9,24 @@ from ..client import brain_client
 
 
 @mcp.tool()
-async def get_alpha_details(alpha_id: str):
+async def get_alpha_details(alpha_id: str, output_path: Optional[str] = None):
     """
     Get detailed information about an alpha.
 
     Args:
         alpha_id: The ID of the alpha to retrieve
+        output_path: Optional path to save full raw JSON response
 
     Returns:
         Detailed alpha information
     """
-    return str(await brain_client.get_alpha_details(alpha_id))
+    detail = await brain_client.get_alpha_details(alpha_id)
+    if output_path:
+        p = Path(output_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(detail.model_dump(by_alias=True), indent=2, default=str))
+        return f"{detail}\n\nFull details saved to: {p}"
+    return str(detail)
 
 
 @mcp.tool()
@@ -131,7 +139,7 @@ async def submit_alpha(alpha_id: str):
 
 
 @mcp.tool()
-async def check_alpha(alpha_id: str):
+async def check_alpha(alpha_id: str, output_path: Optional[str] = None):
     """Check if an alpha is ready for submission using the platform's native check endpoint.
 
     Runs server-side checks (Sharpe, turnover, correlation, pyramid, themes, etc.)
@@ -139,8 +147,15 @@ async def check_alpha(alpha_id: str):
 
     Args:
         alpha_id: The ID of the alpha to check.
+        output_path: Optional path to save full check result as JSON.
     """
-    return str(await brain_client.check_alpha(alpha_id))
+    result = await brain_client.check_alpha(alpha_id)
+    if output_path:
+        p = Path(output_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(result.model_dump(by_alias=True), indent=2, default=str))
+        return f"{result}\n\nCheck details saved to: {p}"
+    return str(result)
 
 
 @mcp.tool()

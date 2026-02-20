@@ -476,10 +476,26 @@ class UserMixin:
             params["grouping"] = grouping
         return UserActivitiesResponse.model_validate(self._get_json(f"/users/{user_id}/activities", params=params))
 
-    async def get_pyramid_multipliers(self) -> PyramidMultipliersResponse:
+    async def get_pyramid_multipliers(self, force_refresh: bool = False) -> PyramidMultipliersResponse:
         """Get current pyramid multipliers showing BRAIN's encouragement levels."""
+        cache_key = "pyramid_multipliers"
+        file_subpath = "pyramid_multipliers/pyramid_multipliers.csv"
+
+        if not force_refresh:
+            rows = self._static_cache.read_table(cache_key)
+            if rows is not None:
+                return PyramidMultipliersResponse(pyramids=[PyramidMultiplierItem.model_validate(r) for r in rows])
+
         await self.ensure_authenticated()
-        return PyramidMultipliersResponse.model_validate(self._get_json("/users/self/activities/pyramid-multipliers"))
+        result = PyramidMultipliersResponse.model_validate(self._get_json("/users/self/activities/pyramid-multipliers"))
+
+        self._static_cache.write_table(
+            cache_key,
+            [item.model_dump(mode="json") for item in result.pyramids],
+            ttl_days=7,
+            file_subpath=file_subpath,
+        )
+        return result
 
     async def get_pyramid_alphas(
         self,

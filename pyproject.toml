@@ -36,6 +36,7 @@ dependencies = [
 [project.scripts]
 wqb-mcp = "wqb_mcp.server:main"
 wqb-mcp-setup = "wqb_mcp.setup:main"
+wqb-mcp-warmup = "wqb_mcp.warmup:main"
 
 [project.urls]
 Homepage = "https://github.com/jordane95/wqb-mcp"

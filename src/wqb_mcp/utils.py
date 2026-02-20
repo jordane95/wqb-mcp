@@ -19,18 +19,8 @@ def parse_json_or_error(response: Any, endpoint: str) -> Any:
         ) from e
 
 
-def expand_nested_data(data: List[Dict[str, Any]], preserve_original: bool = True) -> List[Dict[str, Any]]:
-    """Flatten complex nested data structures into tabular format."""
-    df = pd.json_normalize(data, sep="_")
-    if preserve_original:
-        original_df = pd.DataFrame(data)
-        df = pd.concat([original_df, df], axis=1)
-        df = df.loc[:, ~df.columns.duplicated()]
-    return df.to_dict(orient="records")
-
-
-def save_flat_csv(rows: List[Dict[str, Any]], path: Path) -> int:
-    """Save flat rows to CSV and return column count."""
+def save_csv(rows: List[Dict[str, Any]], path: Path) -> int:
+    """Save rows to CSV and return column count."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
         path.write_text("", encoding="utf-8")

@@ -5,7 +5,7 @@ from typing import Optional
 
 from . import mcp
 from ..client import brain_client
-from ..utils import save_flat_csv
+from ..utils import save_csv
 
 
 @mcp.tool()
@@ -48,7 +48,7 @@ async def get_user_activities(user_id: str, grouping: Optional[str] = None,
     response = await brain_client.get_user_activities(user_id, grouping)
     rows = [item.model_dump() for item in response.results]
     target = Path(output_path) if output_path else Path("assets") / "data" / "user_activities.csv"
-    col_count = save_flat_csv(rows, target)
+    col_count = save_csv(rows, target)
     return (
         "Saved user activities CSV\n"
         f"- path: `{target}`\n"
@@ -59,12 +59,12 @@ async def get_user_activities(user_id: str, grouping: Optional[str] = None,
 
 
 @mcp.tool()
-async def get_pyramid_multipliers(output_path: Optional[str] = None):
+async def get_pyramid_multipliers(output_path: Optional[str] = None, force_refresh: bool = False):
     """Get current pyramid multipliers showing BRAIN's encouragement levels."""
-    response = await brain_client.get_pyramid_multipliers()
+    response = await brain_client.get_pyramid_multipliers(force_refresh=force_refresh)
     rows = [item.model_dump() for item in response.pyramids]
     target = Path(output_path) if output_path else Path("assets") / "data" / "pyramid_multipliers.csv"
-    col_count = save_flat_csv(rows, target)
+    col_count = save_csv(rows, target)
     return (
         "Saved pyramid multipliers CSV\n"
         f"- path: `{target}`\n"
@@ -82,7 +82,7 @@ async def get_pyramid_alphas(start_date: Optional[str] = None,
     response = await brain_client.get_pyramid_alphas(start_date, end_date)
     rows = [item.model_dump() for item in response.pyramids]
     target = Path(output_path) if output_path else Path("assets") / "data" / "pyramid_alphas.csv"
-    col_count = save_flat_csv(rows, target)
+    col_count = save_csv(rows, target)
     return (
         "Saved pyramid alphas CSV\n"
         f"- path: `{target}`\n"

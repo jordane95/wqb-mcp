@@ -39,6 +39,45 @@ class SimulationData(BaseModel):
     selection: Optional[str] = None
 
 
+class SimulationSettingCombination(BaseModel):
+    instrumentType: str
+    region: str
+    delay: int
+    universe: List[str] = Field(default_factory=list)
+    neutralization: List[str] = Field(default_factory=list)
+
+    def __str__(self) -> str:
+        return (
+            f"{self.instrumentType}/{self.region}/D{self.delay}\n"
+            f"  universes: {', '.join(self.universe)}\n"
+            f"  neutralization: {', '.join(self.neutralization)}"
+        )
+
+
+class SimulationSettingOptionsResponse(BaseModel):
+    instrument_options: List[SimulationSettingCombination] = Field(default_factory=list)
+    total_combinations: int
+    instrument_types: List[str] = Field(default_factory=list)
+    regions_by_type: Dict[str, List[str]] = Field(default_factory=dict)
+
+    def __str__(self) -> str:
+        lines = [
+            f"Platform Setting Options ({self.total_combinations} combinations)",
+            f"Instrument Types: {', '.join(self.instrument_types) or '-'}",
+        ]
+        for inst_type, regions in self.regions_by_type.items():
+            lines.append(f"  {inst_type}: regions={', '.join(regions)}")
+
+        lines.append("")
+        for i, combo in enumerate(self.instrument_options, 1):
+            lines.append(
+                f"  {i}. {combo.instrumentType}/{combo.region}/D{combo.delay}  "
+                f"universes=[{', '.join(combo.universe)}]  "
+                f"neutralization=[{', '.join(combo.neutralization)}]"
+            )
+        return "\n".join(lines)
+
+
 class SimulationErrorLocation(BaseModel):
     model_config = {"extra": "forbid"}
 
@@ -549,3 +588,71 @@ class SimulationMixin:
             children_completed=children_completed,
             results=results,
         )
+
+    # --- Platform setting options ---
+
+    @staticmethod
+    def _choice_values(items: List[Dict[str, Any]]) -> List[Any]:
+        return [item["value"] for item in items if isinstance(item, dict) and "value" in item]
+
+    async def get_platform_setting_options(self, force_refresh: bool = False) -> "SimulationSettingOptionsResponse":
+        """Get available instrument types, regions, delays, universes, and neutralization options."""
+        cache_key = "platform_settings"
+
+        if not force_refresh:
+            cached = self._static_cache.read_dict(cache_key)
+            if cached is not None:
+                return SimulationSettingOptionsResponse.model_validate(cached)
+
+        await self.ensure_authenticated()
+
+        response = self.session.options(f"{self.base_url}/simulations")
+        response.raise_for_status()
+
+        settings_data = parse_json_or_error(response, "/simulations")
+        children = settings_data["actions"]["POST"]["settings"]["children"]
+
+        instrument_choice = children["instrumentType"]["choices"]
+        region_choice = children["region"]["choices"]["instrumentType"]
+        universe_choice = children["universe"]["choices"]["instrumentType"]
+        delay_choice = children["delay"]["choices"]["instrumentType"]
+        neutralization_choice = children["neutralization"]["choices"]["instrumentType"]
+
+        instrument_types = self._choice_values(instrument_choice)
+        combinations: List[SimulationSettingCombination] = []
+        regions_by_type: Dict[str, List[str]] = {}
+
+        for instrument in instrument_types:
+            regions = self._choice_values(region_choice[instrument])
+            regions_by_type[instrument] = regions
+
+            for region in regions:
+                delays = self._choice_values(delay_choice[instrument]["region"][region])
+                universes = self._choice_values(universe_choice[instrument]["region"][region])
+                neutralizations = self._choice_values(neutralization_choice[instrument]["region"][region])
+
+                for delay in delays:
+                    combinations.append(
+                        SimulationSettingCombination(
+                            instrumentType=instrument,
+                            region=region,
+                            delay=delay,
+                            universe=universes,
+                            neutralization=neutralizations,
+                        )
+                    )
+
+        result = SimulationSettingOptionsResponse(
+            instrument_options=combinations,
+            total_combinations=len(combinations),
+            instrument_types=instrument_types,
+            regions_by_type=regions_by_type,
+        )
+
+        self._static_cache.write_dict(
+            cache_key,
+            result.model_dump(mode="json"),
+            ttl_days=30,
+            file_subpath="platform_settings/platform_settings.json",
+        )
+        return result

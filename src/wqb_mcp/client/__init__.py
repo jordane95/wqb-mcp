@@ -14,7 +14,7 @@ from .data import DataMixin
 from .community import CommunityMixin
 from .user import UserMixin
 from .operators import OperatorsMixin
-from .simulation_settings import SimulationSettingsMixin
+from .static_cache import StaticCache
 
 
 class BrainApiClient(
@@ -28,7 +28,6 @@ class BrainApiClient(
     CommunityMixin,
     UserMixin,
     OperatorsMixin,
-    SimulationSettingsMixin,
 ):
     """WorldQuant BRAIN API client with comprehensive functionality."""
 
@@ -37,6 +36,7 @@ class BrainApiClient(
         self.session = requests.Session()
         self.auth_credentials = None
         self.is_authenticating = False
+        self._static_cache = StaticCache()
 
         # Configure session
         self.session.timeout = 30

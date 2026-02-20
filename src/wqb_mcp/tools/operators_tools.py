@@ -5,24 +5,21 @@ from typing import Optional
 
 from . import mcp
 from ..client import brain_client
-from ..utils import expand_nested_data, save_flat_csv
+from ..utils import save_csv
 
 
 @mcp.tool()
-async def get_operators(output_path: Optional[str] = None):
+async def get_operators(output_path: Optional[str] = None, force_refresh: bool = False):
     """
     Get available operators for alpha creation.
 
     Returns:
         Dictionary containing operators list and count
     """
-    response = await brain_client.get_operators()
-    rows = expand_nested_data(
-        [op.model_dump(mode="json", exclude_none=True) for op in response.operators],
-        preserve_original=True,
-    )
+    response = await brain_client.get_operators(force_refresh=force_refresh)
+    rows = [op.model_dump(mode="json", exclude_none=True) for op in response.operators]
     target = Path(output_path) if output_path else Path("assets") / "operators" / "operators.csv"
-    col_count = save_flat_csv(rows, target)
+    col_count = save_csv(rows, target)
     return (
         f"{response}\n"
         f"- csv_path: `{target}`\n"
@@ -60,7 +57,7 @@ async def run_selection(
 
 
 @mcp.tool()
-async def get_platform_setting_options():
+async def get_platform_setting_options(force_refresh: bool = False):
     """Discover valid simulation setting options (instrument types, regions, delays, universes, neutralization).
 
     Use this when a simulation request might contain an invalid/mismatched setting. If an AI or user supplies
@@ -70,7 +67,7 @@ async def get_platform_setting_options():
     Returns:
         A structured list of valid combinations and choice lists to validate or fix simulation settings.
     """
-    response = await brain_client.get_platform_setting_options()
+    response = await brain_client.get_platform_setting_options(force_refresh=force_refresh)
 
     # Build flat rows for CSV: one row per combination with full lists
     rows = []
@@ -86,7 +83,7 @@ async def get_platform_setting_options():
         })
 
     target = Path("assets") / "data" / "platform_setting_options.csv"
-    col_count = save_flat_csv(rows, target)
+    col_count = save_csv(rows, target)
 
     return (
         f"{response}\n\n"

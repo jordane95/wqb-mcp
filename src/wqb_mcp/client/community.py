@@ -288,16 +288,46 @@ class CommunityMixin:
             parse_json_or_error(response, f"/competitions/{competition_id}/agreement")
         )
 
-    async def get_documentations(self) -> TutorialsResponse:
+    async def get_documentations(self, force_refresh: bool = False) -> TutorialsResponse:
         """Get available documentations and learning materials."""
+        cache_key = "documentations:index"
+
+        if not force_refresh:
+            cached = self._static_cache.read_dict(cache_key)
+            if cached is not None:
+                return TutorialsResponse.model_validate(cached)
+
         await self.ensure_authenticated()
         response = self.session.get(f"{self.base_url}/tutorials")
         response.raise_for_status()
-        return TutorialsResponse.model_validate(parse_json_or_error(response, "/tutorials"))
+        result = TutorialsResponse.model_validate(parse_json_or_error(response, "/tutorials"))
 
-    async def get_documentation_page(self, page_id: str) -> TutorialPageResponse:
+        self._static_cache.write_dict(
+            cache_key,
+            result.model_dump(mode="json"),
+            ttl_days=14,
+            file_subpath="documentations/index.json",
+        )
+        return result
+
+    async def get_documentation_page(self, page_id: str, force_refresh: bool = False) -> TutorialPageResponse:
         """Retrieve detailed content of a specific documentation page/article."""
+        cache_key = f"documentations:page:{page_id}"
+
+        if not force_refresh:
+            cached = self._static_cache.read_dict(cache_key)
+            if cached is not None:
+                return TutorialPageResponse.model_validate(cached)
+
         await self.ensure_authenticated()
         response = self.session.get(f"{self.base_url}/tutorial-pages/{page_id}")
         response.raise_for_status()
-        return TutorialPageResponse.model_validate(parse_json_or_error(response, f"/tutorial-pages/{page_id}"))
+        result = TutorialPageResponse.model_validate(parse_json_or_error(response, f"/tutorial-pages/{page_id}"))
+
+        self._static_cache.write_dict(
+            cache_key,
+            result.model_dump(mode="json"),
+            ttl_days=30,
+            file_subpath=f"documentations/pages/{page_id}.json",
+        )
+        return result
