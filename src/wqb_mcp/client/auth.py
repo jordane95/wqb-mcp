@@ -2,12 +2,15 @@
 
 import asyncio
 import base64
+import logging
 import sys
 from typing import List, Optional
 
 from pydantic import BaseModel
 from ..config import load_credentials
 from ..utils import parse_json_or_error
+
+logger = logging.getLogger("wqb_mcp.client")
 
 
 class AuthError(Exception):
@@ -68,7 +71,7 @@ class AuthMixin:
 
     async def authenticate(self, email: str, password: str) -> AuthResponse:
         """Authenticate with WorldQuant BRAIN platform with biometric support."""
-        self.log("Starting Authentication process...", "INFO")
+        logger.info("Starting Authentication process...")
 
         # Clear any existing session data
         self.session.cookies.clear()
@@ -84,12 +87,12 @@ class AuthMixin:
             raise AuthTransportError(f"Authentication request failed: {e}") from e
 
         if response.status_code == 201:
-            self.log("Authentication successful", "SUCCESS")
+            logger.info("Authentication successful")
             jwt_token = self.session.cookies.get('t')
             if jwt_token:
-                self.log("JWT token automatically stored by session", "SUCCESS")
+                logger.info("JWT token automatically stored by session")
             else:
-                self.log("No JWT token found in session", "WARNING")
+                logger.warning("No JWT token found in session")
             # Store credentials only after successful authentication.
             self.auth_credentials = {'email': email, 'password': password}
             return AuthResponse.model_validate(parse_json_or_error(response, "/authentication"))
@@ -100,7 +103,7 @@ class AuthMixin:
             if www_auth == "persona":
                 if not location:
                     raise AuthChallengeRequired("Biometric challenge required but Location header is missing.")
-                self.log("Biometric authentication required", "INFO")
+                logger.info("Biometric authentication required")
                 from urllib.parse import urljoin
                 biometric_url = urljoin(response.url, location)
                 return await self._handle_biometric_auth(biometric_url, email, password)
@@ -116,7 +119,7 @@ class AuthMixin:
 
     async def _handle_biometric_auth(self, biometric_url: str, email: str, password: str) -> AuthResponse:
         """Handle biometric authentication using browser automation."""
-        self.log("Starting biometric authentication...", "INFO")
+        logger.info("Starting biometric authentication...")
 
         browser = None
         # Import playwright for browser automation
@@ -126,9 +129,9 @@ class AuthMixin:
                 browser = await p.chromium.launch(headless=False)
                 page = await browser.new_page()
 
-                self.log("Opening browser for biometric authentication...", "INFO")
+                logger.info("Opening browser for biometric authentication...")
                 await page.goto(biometric_url)
-                self.log("Browser page loaded successfully", "SUCCESS")
+                logger.info("Browser page loaded successfully")
 
                 print("\n" + "="*60, file=sys.stderr)
                 print("BIOMETRIC AUTHENTICATION REQUIRED", file=sys.stderr)
@@ -150,12 +153,12 @@ class AuthMixin:
                     except Exception as e:
                         raise AuthTransportError(f"Biometric poll request failed: {e}") from e
 
-                    self.log(f"Checking authentication status (attempt {attempt}/{max_attempts}): {check_response.status_code}", "INFO")
+                    logger.info("Checking authentication status (attempt %d/%d): %d", attempt, max_attempts, check_response.status_code)
                     if check_response.status_code == 201:
-                        self.log("Biometric authentication successful!", "SUCCESS")
+                        logger.info("Biometric authentication successful!")
                         jwt_token = self.session.cookies.get('t')
                         if jwt_token:
-                            self.log("JWT token received", "SUCCESS")
+                            logger.info("JWT token received")
                         # Store credentials only after successful authentication.
                         self.auth_credentials = {'email': email, 'password': password}
                         return AuthResponse.model_validate(parse_json_or_error(check_response, "/authentication"))
@@ -174,7 +177,7 @@ class AuthMixin:
             # Check if we have a JWT token in cookies
             jwt_token = self.session.cookies.get('t')
             if not jwt_token:
-                self.log("No JWT token found", "INFO")
+                logger.info("No JWT token found")
                 return False
 
             # Test authentication with a simple API call
@@ -182,26 +185,26 @@ class AuthMixin:
             if response.status_code == 200:
                 return True
             elif response.status_code == 401:
-                self.log("JWT token expired or invalid (401)", "INFO")
+                logger.info("JWT token expired or invalid (401)")
                 return False
             else:
-                self.log(f"Unexpected status code during auth check: {response.status_code}", "WARNING")
+                logger.warning("Unexpected status code during auth check: %d", response.status_code)
                 return False
         except Exception as e:
-            self.log(f"Error checking authentication: {str(e)}", "ERROR")
+            logger.error("Error checking authentication: %s", e)
             return False
 
     async def ensure_authenticated(self):
         """Ensure authentication is valid, re-authenticate if needed."""
         if not await self.is_authenticated():
             if not self.auth_credentials:
-                self.log("No credentials in memory, loading from config...", "INFO")
+                logger.info("No credentials in memory, loading from config...")
                 email, password = load_credentials()
                 if not email or not password:
                     raise Exception("Authentication credentials not found. Please authenticate first.")
                 self.auth_credentials = {'email': email, 'password': password}
 
-            self.log("Re-authenticating...", "INFO")
+            logger.info("Re-authenticating...")
             await self.authenticate(self.auth_credentials['email'], self.auth_credentials['password'])
 
     async def get_authentication_status(self) -> Optional[dict]:
@@ -211,5 +214,5 @@ class AuthMixin:
             response.raise_for_status()
             return parse_json_or_error(response, "/users/self")
         except Exception as e:
-            self.log(f"Failed to get auth status: {str(e)}", "ERROR")
+            logger.error("Failed to get auth status: %s", e)
             return None

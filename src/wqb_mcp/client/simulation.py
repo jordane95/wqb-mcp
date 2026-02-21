@@ -1,12 +1,15 @@
 """Simulation mixin for BrainApiClient."""
 
 import json
+import logging
 from asyncio import sleep as async_sleep
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, RootModel
 
 from ..utils import parse_json_or_error
+
+logger = logging.getLogger("wqb_mcp.client")
 
 
 class SimulationSettings(BaseModel):
@@ -304,7 +307,7 @@ class SimulationMixin:
             raise RuntimeError("Simulation submission succeeded but no Location header was returned")
 
         simulation_id = location.rstrip("/").split("/")[-1]
-        self.log(f"Simulation submitted: {simulation_id}", "SUCCESS")
+        logger.info("Simulation submitted: %s", simulation_id)
 
         snapshot = SimulationSnapshot()
         retry_after: Optional[str] = None

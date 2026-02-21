@@ -237,3 +237,18 @@ async def wait_for_multi_simulation(
         )
 
     return text
+
+
+@mcp.tool()
+async def get_platform_setting_options(force_refresh: bool = False):
+    """Discover valid simulation setting options (instrument types, regions, delays, universes, neutralization).
+
+    Use this when a simulation request might contain an invalid/mismatched setting. If an AI or user supplies
+    incorrect parameters (e.g., wrong region for an instrument type), call this tool to retrieve the authoritative
+    option sets and correct the inputs before proceeding.
+
+    Returns:
+        A structured list of valid combinations and choice lists to validate or fix simulation settings.
+    """
+    response = await brain_client.get_platform_setting_options(force_refresh=force_refresh)
+    return str(response)

@@ -1,9 +1,10 @@
 """Data mixin for BrainApiClient."""
 
+import time
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..utils import dataframe_markdown_preview, parse_json_or_error
 
@@ -37,6 +38,13 @@ class DataDatasetItem(BaseModel):
     pyramidMultiplier: Optional[float] = None
     themes: List[str] = Field(default_factory=list)
     researchPapers: List[DataResearchPaper] = Field(default_factory=list)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _coerce_description(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        return str(v)
 
 
 class DataDatasetsResponse(BaseModel):
@@ -80,6 +88,13 @@ class DataFieldItem(BaseModel):
     alphaCount: Optional[int] = None
     pyramidMultiplier: Optional[float] = None
     themes: List[str] = Field(default_factory=list)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _coerce_description(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        return str(v)
 
 
 class DataFieldsResponse(BaseModel):
@@ -187,6 +202,11 @@ class DataMixin:
         response.raise_for_status()
         result = DataDatasetsResponse.model_validate(parse_json_or_error(response, "/data-sets"))
 
+        if result.count != len(result.results):
+            raise RuntimeError(
+                f"Datasets count mismatch: count={result.count}, got {len(result.results)}"
+            )
+
         if not search:
             self._static_cache.write_table(
                 cache_key,
@@ -221,41 +241,56 @@ class DataMixin:
 
         page_size = 50
         all_results: List[DataFieldItem] = []
-        offset = 0
         total_count: Optional[int] = None
+        max_try = 5
+        max_429_retries = 10
 
-        while True:
-            query = DataFieldsQuery(
-                instrument_type=instrument_type,
-                region=region,
-                delay=delay,
-                universe=universe,
-                theme=theme,
-                dataset_id=dataset_id,
-                data_type=data_type,
-                search=search,
-                limit=page_size,
-                offset=offset,
-            )
-
+        # First request to get total count
+        query = DataFieldsQuery(
+            instrument_type=instrument_type, region=region, delay=delay,
+            universe=universe, theme=theme, dataset_id=dataset_id,
+            data_type=data_type, search=search, limit=page_size, offset=0,
+        )
+        for _ in range(max_429_retries):
             response = self.session.get(f"{self.base_url}/data-fields", params=query.to_params())
-            response.raise_for_status()
-            page = DataFieldsResponse.model_validate(parse_json_or_error(response, "/data-fields"))
+            if response.status_code != 429:
+                break
+            time.sleep(3)
+        response.raise_for_status()
+        first_page = parse_json_or_error(response, "/data-fields")
+        total_count = first_page.get("count", 0)
 
-            if total_count is None:
-                total_count = page.count
+        if total_count == 0:
+            return DataFieldsResponse(count=0, results=[])
 
+        for offset in range(0, total_count, page_size):
+            query = DataFieldsQuery(
+                instrument_type=instrument_type, region=region, delay=delay,
+                universe=universe, theme=theme, dataset_id=dataset_id,
+                data_type=data_type, search=search, limit=page_size, offset=offset,
+            )
+            for _ in range(max_try):
+                for _ in range(max_429_retries):
+                    response = self.session.get(f"{self.base_url}/data-fields", params=query.to_params())
+                    if response.status_code != 429:
+                        break
+                    time.sleep(3)
+                data = response.json()
+                if "results" in data:
+                    break
+                time.sleep(5)
+            else:
+                response.raise_for_status()
+
+            page = DataFieldsResponse.model_validate(data)
             all_results.extend(page.results)
 
-            if len(all_results) >= total_count or len(page.results) < page_size:
-                break
+        if len(all_results) != total_count:
+            raise RuntimeError(
+                f"Datafields pagination incomplete: expected {total_count}, got {len(all_results)}"
+            )
 
-            offset += page_size
-
-        assert len(all_results) == total_count, (
-            f"Pagination mismatch: fetched {len(all_results)} but API reported {total_count}"
-        )
-        result = DataFieldsResponse(count=total_count or 0, results=all_results)
+        result = DataFieldsResponse(count=total_count, results=all_results)
 
         if not search:
             self._static_cache.write_table(

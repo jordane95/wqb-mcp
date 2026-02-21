@@ -35,9 +35,10 @@ Cache layout::
 from __future__ import annotations
 
 import json
+import logging
 import os
-import sys
 import tempfile
+import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -48,6 +49,13 @@ import pandas as pd
 _DEFAULT_ROOT = Path.home() / ".wqb_mcp" / "cache"
 _INDEX_VERSION = 1
 
+# Module-level logger — inherits the stderr handler from the "wqb_mcp" root.
+_cache_logger = logging.getLogger("wqb_mcp.client.static_cache")
+
+# Honour the WQB_CACHE_LOG env var (default WARN keeps existing behaviour).
+_ENV_LEVEL = os.environ.get("WQB_CACHE_LOG", "WARN").upper()
+_cache_logger.setLevel(getattr(logging, _ENV_LEVEL, logging.WARNING))
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -57,19 +65,13 @@ def _now_iso() -> str:
     return _now().isoformat()
 
 
-def _log(message: str, level: str = "INFO") -> None:
-    try:
-        print(f"[{level}] [StaticCache] {message}", file=sys.stderr)
-    except Exception:
-        pass
-
-
 class StaticCache:
     """TTL-based local cache for static BRAIN platform data."""
 
     def __init__(self, root: Optional[Path] = None):
         self.root = Path(root) if root else _DEFAULT_ROOT
         self._index: Optional[Dict[str, Any]] = None  # lazy-loaded
+        self._lock = threading.Lock()  # guards index + meta read-modify-write
 
     # -- atomic write helpers ------------------------------------------------
 
@@ -205,10 +207,10 @@ class StaticCache:
                 {k: self._parse_cell(v) for k, v in row.items()}
                 for row in rows
             ]
-            _log(f"cache HIT  {cache_key} ({len(rows)} rows)")
+            _cache_logger.info("cache HIT  %s (%d rows)", cache_key, len(rows))
             return rows
         except Exception as exc:
-            _log(f"cache read error {cache_key}: {exc}", "WARN")
+            _cache_logger.warning("cache read error %s: %s", cache_key, exc)
             return None
 
     def write_table(
@@ -232,7 +234,7 @@ class StaticCache:
         self._atomic_write_text(csv_path, df.to_csv(index=False))
 
         self._update_index_and_meta(cache_key, file_subpath, ttl_days, record_count=len(df))
-        _log(f"cache WRITE {cache_key} ({len(df)} rows -> {file_subpath})")
+        _cache_logger.info("cache WRITE %s (%d rows -> %s)", cache_key, len(df), file_subpath)
 
     # -- JSON read/write (non-tabular data) ---------------------------------
 
@@ -245,10 +247,10 @@ class StaticCache:
         try:
             with open(file_path, encoding="utf-8") as f:
                 data = json.load(f)
-            _log(f"cache HIT  {cache_key}")
+            _cache_logger.info("cache HIT  %s", cache_key)
             return data
         except Exception as exc:
-            _log(f"cache read error {cache_key}: {exc}", "WARN")
+            _cache_logger.warning("cache read error %s: %s", cache_key, exc)
             return None
 
     def write_dict(
@@ -262,7 +264,7 @@ class StaticCache:
         file_path = self.root / file_subpath
         self._atomic_write_text(file_path, json.dumps(data, indent=2, default=str))
         self._update_index_and_meta(cache_key, file_subpath, ttl_days)
-        _log(f"cache WRITE {cache_key} -> {file_subpath}")
+        _cache_logger.info("cache WRITE %s -> %s", cache_key, file_subpath)
 
     # -- index/meta update helper -------------------------------------------
 
@@ -283,13 +285,17 @@ class StaticCache:
             entry_data["record_count"] = record_count
             meta_entry["record_count"] = record_count
 
-        idx = self._load_index()
-        idx["entries"][cache_key] = entry_data
-        self._save_index()
+        with self._lock:
+            # Write meta first, then index. If interrupted between the two,
+            # meta has an orphan entry (harmless) rather than index missing meta
+            # (permanently stale .meta.json since cache hit skips re-write).
+            meta = self._load_meta(file_subpath)
+            meta[self._meta_key(file_subpath)] = meta_entry
+            self._save_meta(file_subpath, meta)
 
-        meta = self._load_meta(file_subpath)
-        meta[self._meta_key(file_subpath)] = meta_entry
-        self._save_meta(file_subpath, meta)
+            idx = self._load_index()
+            idx["entries"][cache_key] = entry_data
+            self._save_index()
 
     def invalidate(self, cache_key: str) -> None:
         """Remove a single cache entry."""
@@ -302,7 +308,7 @@ class StaticCache:
                 file_path.unlink(missing_ok=True)
             except OSError:
                 pass
-            _log(f"cache INVALIDATE {cache_key}")
+            _cache_logger.info("cache INVALIDATE %s", cache_key)
 
     def invalidate_all(self) -> None:
         """Remove all cache entries and files."""
@@ -320,4 +326,4 @@ class StaticCache:
                     child.unlink()
                 except OSError:
                     pass
-        _log("cache INVALIDATE ALL")
+        _cache_logger.info("cache INVALIDATE ALL")

@@ -9,7 +9,7 @@ Pearson correlation with numpy/pandas.
 
 Cache layout::
 
-    ~/.wqb_mcp/alpha_cache/
+    ~/.wqb_mcp/cache/alpha_cache/
     ├── index.json
     └── alphas/
         ├── <alpha_id>/
@@ -48,6 +48,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -58,6 +59,8 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger("wqb_mcp.client")
 
 from .alpha import AlphaDetailsResponse
 from .correlation import (
@@ -71,7 +74,7 @@ from .correlation import (
     SelfCorrelationRecord,
 )
 
-_DEFAULT_DATA_DIR = Path.home() / ".wqb_mcp" / "alpha_cache"
+_DEFAULT_DATA_DIR = Path.home() / ".wqb_mcp" / "cache" / "alpha_cache"
 _INDEX_VERSION = 1
 
 _CORR_TYPE_TO_TAG = {
@@ -404,9 +407,9 @@ class LocalCorrelationMixin:
         cached_ids = set(loaded["alphas"]) if loaded else set()
 
         if not loaded:
-            self.log("No cache found, downloading full OS alpha data...", "INFO")
+            logger.info("No cache found, downloading full OS alpha data...")
         else:
-            self.log(f"Loaded cached OS baseline: {len(cached_ids)} alphas", "INFO")
+            logger.info("Loaded cached OS baseline: %d alphas", len(cached_ids))
 
         os_alphas = await self._fetch_all_os_alphas()
         current_ids = {a.id for a in os_alphas}
@@ -419,7 +422,7 @@ class LocalCorrelationMixin:
                 alpha_dir = cache._alpha_dir(stale_id)
                 if alpha_dir.exists():
                     shutil.rmtree(alpha_dir, ignore_errors=True)
-            self.log(f"Removed {len(stale_ids)} stale alphas from cache", "INFO")
+            logger.info("Removed %d stale alphas from cache", len(stale_ids))
 
         # Download new alphas (or all if force_refresh)
         if force_refresh:
@@ -428,7 +431,7 @@ class LocalCorrelationMixin:
             alphas_to_sync = [a for a in os_alphas if a.id not in cached_ids]
         if not alphas_to_sync and not stale_ids:
             if loaded is None:
-                self.log("No OS alpha data available", "WARNING")
+                logger.warning("No OS alpha data available")
             return cache.index
 
         synced = 0
@@ -455,16 +458,16 @@ class LocalCorrelationMixin:
                 cache.register_alpha(alpha.id, entry)
                 synced += 1
             except Exception as e:
-                self.log(f"Failed to sync alpha {alpha.id}: {e}", "WARNING")
+                logger.warning("Failed to sync alpha %s: %s", alpha.id, e)
 
         if synced > 0 or stale_ids:
             cache.save_index()
-        self.log(
-            f"Synced {synced}/{len(alphas_to_sync)} alphas"
-            f"{' (force refresh)' if force_refresh else ''}, "
-            f"removed {len(stale_ids)} stale, "
-            f"total: {len(cache.index['alphas'])}",
-            "INFO",
+        logger.info(
+            "Synced %d/%d alphas%s, removed %d stale, total: %d",
+            synced, len(alphas_to_sync),
+            " (force refresh)" if force_refresh else "",
+            len(stale_ids),
+            len(cache.index["alphas"]),
         )
         return cache.index
 

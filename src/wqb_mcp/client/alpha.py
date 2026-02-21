@@ -1,4 +1,5 @@
 """Alpha management mixin for BrainApiClient."""
+import logging
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from asyncio import sleep as async_sleep
@@ -8,6 +9,8 @@ import functools
 import pathlib
 
 from ..utils import parse_json_or_error, save_csv
+
+logger = logging.getLogger("wqb_mcp.client")
 
 
 class AlphaRegion(str, Enum):
@@ -637,10 +640,9 @@ class AlphaMixin:
             if done:
                 return self._parse_check_response(alpha_id, response, poll_index)
 
-            self.log(
-                f"Alpha {alpha_id} check running (poll {poll_index + 1}/{max_polls}), "
-                f"retry-after={retry_after}s",
-                "INFO",
+            logger.info(
+                "Alpha %s check running (poll %d/%d), retry-after=%ss",
+                alpha_id, poll_index + 1, max_polls, retry_after,
             )
             await async_sleep(float(retry_after or 1))
 

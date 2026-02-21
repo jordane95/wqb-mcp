@@ -1,6 +1,7 @@
 """User mixin for BrainApiClient."""
 
 import base64
+import logging
 import math
 import os
 import pathlib
@@ -10,6 +11,8 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from ..utils import dataframe_markdown_preview, parse_json_or_error
+
+logger = logging.getLogger("wqb_mcp.client")
 
 IMG_TAG_PATTERN = re.compile(r"<img[^>]+src=\"(data:image/[^\"]+)\"[^>]*>", re.IGNORECASE)
 BASE64_IMG_HEURISTIC_PATTERN = re.compile(r"([A-Za-z0-9+/]{500,}={0,2})\"\s*</img>")
@@ -324,7 +327,7 @@ class UserMixin:
             try:
                 save_dir.mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                self.log(f"Could not create image save directory: {e}", "WARNING")
+                logger.warning("Could not create image save directory: %s", e)
 
         new_desc = desc
         for idx, match in enumerate(matches, start=1):
@@ -352,7 +355,7 @@ class UserMixin:
                     attachments.append(str(file_path))
                     replacement = f"[Image extracted -> {file_path}]"
                 except Exception as e:
-                    self.log(f"Failed to decode embedded image in message {message_id}: {e}", "WARNING")
+                    logger.warning("Failed to decode embedded image in message %s: %s", message_id, e)
                     replacement = "[Image extraction failed - content omitted]"
             else:
                 replacement = "[Embedded image]"

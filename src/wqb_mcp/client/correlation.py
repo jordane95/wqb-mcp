@@ -1,11 +1,14 @@
 """Correlation mixin for BrainApiClient."""
 
 import asyncio
+import logging
 from enum import Enum
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 from ..utils import parse_json_or_error
+
+logger = logging.getLogger("wqb_mcp.client")
 
 
 class CorrelationType(str, Enum):
@@ -178,7 +181,7 @@ class CorrelationMixin:
 
         for attempt in range(max_retries):
             try:
-                self.log(f"Fetching {corr_type.value} correlation for alpha {alpha_id} (attempt {attempt + 1}/{max_retries})", "INFO")
+                logger.info("Fetching %s correlation for alpha %s (attempt %d/%d)", corr_type.value, alpha_id, attempt + 1, max_retries)
 
                 response = self.session.get(f"{self.base_url}/alphas/{alpha_id}/correlations/{corr_type.value}")
                 response.raise_for_status()
@@ -186,20 +189,20 @@ class CorrelationMixin:
                 data = parse_json_or_error(response, f"/alphas/{alpha_id}/correlations/{corr_type.value}")
                 if not data:
                     last_error = ValueError(f"Empty {corr_type.value} correlation response for {alpha_id}")
-                    self.log(str(last_error), "WARNING")
+                    logger.warning("%s", last_error)
                     await asyncio.sleep(retry_delay)
                     continue
 
-                self.log(f"Successfully retrieved {corr_type.value} correlation for alpha {alpha_id}", "SUCCESS")
+                logger.info("Successfully retrieved %s correlation for alpha %s", corr_type.value, alpha_id)
                 return CorrelationData.model_validate(data)
 
             except Exception as e:
                 last_error = e
                 if attempt < max_retries - 1:
-                    self.log(f"Failed to get {corr_type.value} correlation for {alpha_id} (attempt {attempt + 1}): {e}, retrying in {retry_delay}s...", "WARNING")
+                    logger.warning("Failed to get %s correlation for %s (attempt %d): %s, retrying in %ds...", corr_type.value, alpha_id, attempt + 1, e, retry_delay)
                     await asyncio.sleep(retry_delay)
                 else:
-                    self.log(f"Failed to get {corr_type.value} correlation for {alpha_id} after {max_retries} attempts: {e}", "ERROR")
+                    logger.error("Failed to get %s correlation for %s after %d attempts: %s", corr_type.value, alpha_id, max_retries, e)
 
         raise last_error
 
@@ -290,10 +293,10 @@ class CorrelationMixin:
                             # Override the check to pass
                             pp_check.passes_check = True
                             correlation_checks.all_passed = True
-                            self.log(
-                                f"Power Pool correlation > 0.5 but Sharpe is 10% higher "
-                                f"({current_sharpe:.4f} >= 1.1 × {correlated_sharpe:.4f}), check passes",
-                                "INFO"
+                            logger.info(
+                                "Power Pool correlation > 0.5 but Sharpe is 10%% higher "
+                                "(%.4f >= 1.1 × %.4f), check passes",
+                                current_sharpe, correlated_sharpe,
                             )
         else:
             # Regular alpha: check prod + self correlation with threshold=0.7

@@ -1,5 +1,6 @@
 """BrainApiClient composed from domain mixins."""
 
+import logging
 import sys
 
 import requests
@@ -15,6 +16,28 @@ from .community import CommunityMixin
 from .user import UserMixin
 from .operators import OperatorsMixin
 from .static_cache import StaticCache
+
+# ---------------------------------------------------------------------------
+# Configure the package-level logger once.  A single StreamHandler on stderr
+# ensures all child loggers (wqb_mcp.client, wqb_mcp.client.static_cache, …)
+# propagate here.  stdout is reserved for MCP JSON-RPC traffic.
+# ---------------------------------------------------------------------------
+_root_logger = logging.getLogger("wqb_mcp")
+if not _root_logger.handlers:
+    _handler = logging.StreamHandler(sys.stderr)
+    _handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+    _root_logger.addHandler(_handler)
+    _root_logger.setLevel(logging.DEBUG)  # allow children to decide their own level
+
+# Level-name mapping used by the backward-compat property setter
+_LEVEL_MAP = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "SUCCESS": logging.INFO,
+    "WARN": logging.WARNING,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+}
 
 
 class BrainApiClient(
@@ -37,6 +60,8 @@ class BrainApiClient(
         self.auth_credentials = None
         self.is_authenticating = False
         self._static_cache = StaticCache()
+        self.logger = logging.getLogger("wqb_mcp.client")
+        self.logger.setLevel(logging.INFO)
 
         # Configure session
         self.session.timeout = 30
@@ -44,18 +69,16 @@ class BrainApiClient(
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
 
-    def log(self, message: str, level: str = "INFO"):
-        """Log messages to stderr to avoid MCP protocol interference."""
-        try:
-            print(f"[{level}] {message}", file=sys.stderr)
-        except UnicodeEncodeError:
-            try:
-                safe_message = message.encode('ascii', 'ignore').decode('ascii')
-                print(f"[{level}] {safe_message}", file=sys.stderr)
-            except Exception:
-                print(f"[{level}] Log message", file=sys.stderr)
-        except Exception:
-            print(f"[{level}] Log message", file=sys.stderr)
+    # Backward-compat property so warmup.py's
+    #   brain_client.log_level = "WARN" / "INFO"
+    # keeps working.
+    @property
+    def log_level(self) -> str:
+        return logging.getLevelName(self.logger.level)
+
+    @log_level.setter
+    def log_level(self, value: str) -> None:
+        self.logger.setLevel(_LEVEL_MAP.get(value.upper(), logging.INFO))
 
 
 brain_client = BrainApiClient()
