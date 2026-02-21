@@ -152,12 +152,15 @@ class StaticCache:
     # -- public API ----------------------------------------------------------
 
     def is_valid(self, cache_key: str) -> bool:
-        """Check if entry exists in index and is not expired."""
+        """Check if entry exists in index, is not expired, and file exists on disk."""
         idx = self._load_index()
         entry = idx["entries"].get(cache_key)
         if entry is None:
             return False
-        return self._is_entry_valid(entry)
+        if not self._is_entry_valid(entry):
+            return False
+        file_path = self.root / entry["path"]
+        return file_path.exists()
 
     def get(self, cache_key: str) -> Optional[Dict[str, Any]]:
         """Return index entry if valid, else None."""
