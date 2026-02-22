@@ -4,8 +4,27 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import pandas as pd
+
 from . import mcp
 from ..client import brain_client
+
+plt.rcParams["font.sans-serif"] = ["Arial Unicode MS", "Microsoft YaHei", "DejaVu Sans"]
+plt.rcParams["axes.unicode_minus"] = False
+
+
+def _y_formatter(df: pd.DataFrame):
+    """Pick unit (M / K / raw) based on max absolute value."""
+    mx = df.abs().max().max()
+    if mx >= 1e6:
+        return mticker.FuncFormatter(lambda x, _: f"{x / 1e6:.1f}M"), "Cumulative PnL (M)"
+    if mx >= 1e3:
+        return mticker.FuncFormatter(lambda x, _: f"{x / 1e3:.0f}K"), "Cumulative PnL (K)"
+    return mticker.ScalarFormatter(), "Cumulative PnL"
 
 
 @mcp.tool()
@@ -200,6 +219,67 @@ async def get_record_set_data(
         f"- rows: `{len(data.records)}`\n"
         f"- columns: `{len(data.schema_.properties)}`\n"
         f"- headers: `{headers_text}`"
+    )
+
+
+@mcp.tool()
+async def plot_pnl(
+    alpha_id: str,
+    output_path: Optional[str] = None,
+):
+    """Plot cumulative PnL curve for an alpha and save as PNG.
+
+    Use this to visually inspect PnL health: look for consistent upward trends.
+    Bad patterns: horizontal lines (dead signal), single spikes (overfitting),
+    late-stage collapse (regime shift), staircase (sparse updates).
+
+    Args:
+        alpha_id: The ID of the alpha to plot
+        output_path: Optional path to save the PNG. Defaults to assets/plots/{alpha_id}_pnl.png
+
+    Returns:
+        Markdown with file path to the saved PNG
+    """
+    data = await brain_client.get_record_set_data(alpha_id, "pnl")
+    rows = data.rows_as_dicts()
+    if not rows:
+        return f"No PnL data available for alpha `{alpha_id}`."
+
+    df = pd.DataFrame(rows)
+    # Identify date and pnl columns from schema
+    col_names = [p.name for p in data.schema_.properties]
+    date_col = col_names[0]  # first column is date
+    pnl_col = col_names[1]   # second column is cumulative pnl
+
+    df[date_col] = pd.to_datetime(df[date_col])
+    df[pnl_col] = pd.to_numeric(df[pnl_col], errors="coerce")
+    df = df.set_index(date_col).sort_index()
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(df.index, df[pnl_col], linewidth=1.8, color="#2A9D8F")
+    ax.set_title(f"Cumulative PnL — {alpha_id}", fontsize=13)
+    ax.set_xlabel("Date")
+    formatter, ylabel = _y_formatter(df[[pnl_col]])
+    ax.yaxis.set_major_formatter(formatter)
+    ax.set_ylabel(ylabel)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+    # Save
+    if output_path:
+        target = Path(output_path)
+    else:
+        target = Path("assets") / "plots" / f"{alpha_id}_pnl.png"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(target, dpi=150)
+    plt.close(fig)
+
+    return (
+        f"PnL plot saved\n"
+        f"- alpha_id: `{alpha_id}`\n"
+        f"- path: `{target}`\n"
+        f"- data points: `{len(df)}`"
     )
 
 

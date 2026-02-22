@@ -32,6 +32,7 @@ dependencies = [
     "pydantic",
     "keyring",
     "tqdm",
+    "matplotlib",
 ]
 
 [project.scripts]
